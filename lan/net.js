@@ -1,7 +1,7 @@
 /* Server-injected multiplayer bridge; combat.js supplies phase C authority and puppets. */
 (function () {
   'use strict';
-  const VERSION = 2;
+  const VERSION = 3;
 
   // SHA-256 fallback is needed on plain HTTP LAN origins without Web Crypto subtle.
   function sha256(value) {
@@ -319,7 +319,7 @@
         if (message.type === 'leave') removeRemote(message.playerId);
         if (message.type === 'pose') receivePose(message);
         if (message.type === 'shot') remoteShot(message);
-        if (['shotIntent','reloadIntent','hazardIntent'].includes(message.type)) combat.intent(message);
+        if (['shotIntent','reloadIntent','hazardIntent','interactIntent','respawnIntent'].includes(message.type)) combat.intent(message);
         if (message.type === 'world') combat.world(message);
         if (message.type === 'combatEvent') combat.event(message);
         if (message.type === 'authorityStatus') {hostId=message.hostId;battleEnded=message.status==='ended';combat.status(message);resetButton.disabled=selfId!==hostId;updateBadge();}

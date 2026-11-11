@@ -7,9 +7,9 @@ const path = require('node:path');
 const os = require('node:os');
 const crypto = require('node:crypto');
 const { TextDecoder } = require('node:util');
-const { cleanWorld, cleanEvent } = require('./combat-protocol');
+const { cleanWorld, cleanEvent,cleanOptions } = require('./combat-protocol');
 
-const VERSION = 2;
+const VERSION = 3;
 const EXPECTED_HASH = '9e55b5200b088adaf8e1152da04efc0d3b25e236e6baf2dee96f81e23e084966';
 const MAX_MESSAGE = 65536;
 const MAX_PLAYERS = 20;
@@ -81,7 +81,7 @@ function createLanServer(options = {}) {
     }
     if (route !== '/' && route !== '/net.js') { res.writeHead(404, headers); res.end('Not found'); return; }
     let content;
-    try { content = route === '/' ? injected : fs.readFileSync(path.join(__dirname, 'combat.js'),'utf8') + '\n;\n' + fs.readFileSync(path.join(__dirname, 'net.js'),'utf8'); }
+    try { content = route === '/' ? injected : ['combat.js','flow-shared.js','flow-coop.js','net.js'].map(file=>fs.readFileSync(path.join(__dirname,file),'utf8')).join('\n;\n'); }
     catch (error) { console.error(`读取联机脚本失败：${error.message}`); res.writeHead(500, headers); res.end('Script unavailable'); return; }
     res.writeHead(200, { ...headers, 'Content-Type': route === '/' ? 'text/html; charset=utf-8' : 'text/javascript; charset=utf-8' });
     res.end(req.method === 'HEAD' ? undefined : content);
@@ -103,7 +103,7 @@ function createLanServer(options = {}) {
     return { playerId: player.id, nickname: player.nickname, team: player.team, build, map: player.map, pose: player.pose };
   }
   function roster(room) {
-    broadcast(room, { type: 'roster', roundId: room.roundId, hostId: room.hostId, players: [...room.players.values()].map(publicPlayer) });
+    broadcast(room, { type: 'roster', roundId: room.roundId, hostId: room.hostId,mode:room.mode,options:{...room.options}, players: [...room.players.values()].map(publicPlayer) });
   }
   function authorityStatus(room, reason = '') {
     broadcast(room, { type:'authorityStatus', roundId:room.roundId, hostId:room.hostId, status:room.combatStatus, reason });
@@ -183,7 +183,7 @@ function createLanServer(options = {}) {
     if (!room) {
       room = { id, roundId: crypto.randomUUID(), hostId: playerId, mode: message.mode,
         seed: message.seed, eseed: message.eseed, players: new Map(), mapOk: true, world:null,
-        worldSeq:-1, eventSeq:-1, combatStatus:'waiting', lastWorldAt:Date.now(), previousRounds:[], departed:new Map() };
+        worldSeq:-1, eventSeq:-1, combatStatus:'waiting', lastWorldAt:Date.now(), previousRounds:[], departed:new Map(),options:cleanOptions({},message.mode) };
       rooms.set(id, room);
     }
     const teams = [0, 0];
@@ -192,7 +192,7 @@ function createLanServer(options = {}) {
     const player = { id: playerId, nickname: cleanName(message.nickname), team, map: cleanMap(message.map), pose: null, peer };
     peer.playerId = playerId; peer.room = room; room.players.set(playerId, player);
     send(peer, { type: 'joined', playerId, roundId: room.roundId, hostId: room.hostId, room: id,
-      mode: room.mode, seed: room.seed, eseed: room.eseed, build, combatStatus:room.combatStatus,
+      mode: room.mode,options:{...room.options},seed: room.seed, eseed: room.eseed, build, combatStatus:room.combatStatus,
       players: [...room.players.values()].map(publicPlayer) });
     roster(room); maps(room);
     if (room.world) send(peer,room.world);
@@ -245,6 +245,18 @@ function createLanServer(options = {}) {
         origin:data.origin.slice(), muzzle:data.muzzle.slice(), dir:data.dir.map(n=>n/length) };
       broadcast(room,shot,peer,true);
       send(room.players.get(room.hostId).peer,{ ...shot, type:'shotIntent' });
+    } else if (data.type==='interact'||data.type==='respawn') {
+      if(room.mode!=='coop'){invalid(peer,'合作流程请求只适用于合作房间');return;}
+      const key=data.type+'Seq',limiter=data.type==='interact'?peer.interactToken:peer.respawnToken;
+      if(!limiter())return;
+      if(!integer(data.seq)||(data.type==='interact'&&(typeof data.objectiveId!=='string'||!/^[a-zA-Z0-9_-]{1,32}$/.test(data.objectiveId)||typeof data.active!=='boolean'))) {
+        invalid(peer,'流程请求字段无效');return;
+      }
+      if(data.seq<=peer[key])return;
+      peer[key]=data.seq;
+      if(room.mapOk&&room.combatStatus==='active')send(room.players.get(room.hostId).peer,
+        {type:data.type+'Intent',roundId:room.roundId,playerId:peer.playerId,seq:data.seq,at:Date.now(),
+          ...(data.type==='interact'?{objectiveId:data.objectiveId,active:data.active}:{})});
     } else if (data.type === 'reload' || data.type === 'hazard') {
       const limiter = data.type === 'reload' ? peer.reloadToken : peer.hazardToken;
       const key = data.type === 'reload' ? 'reloadSeq' : 'hazardSeq';
@@ -279,15 +291,17 @@ function createLanServer(options = {}) {
       }
     } else if (data.type === 'roundReset') {
       if (peer.playerId !== room.hostId || !peer.resetToken()) { invalid(peer,'只有房主可以重开战斗，且不能频繁重开'); return; }
+      const options=cleanOptions(data.options===undefined?room.options:data.options,room.mode);
+      if(!options){invalid(peer,'房间选项无效');return;}room.options=options;
       room.previousRounds.push(room.roundId); room.previousRounds = room.previousRounds.slice(-4);
       room.roundId = crypto.randomUUID(); room.world = null; room.worldSeq = room.eventSeq = -1;
       room.departed.clear();
       room.combatStatus = 'waiting'; room.lastWorldAt = Date.now();
       for (const player of room.players.values()) {
         player.pose = null;
-        for (const key of ['poseSeq','shotSeq','reloadSeq','hazardSeq']) player.peer[key] = -1;
+        for (const key of ['poseSeq','shotSeq','reloadSeq','hazardSeq','interactSeq','respawnSeq']) player.peer[key] = -1;
       }
-      broadcast(room,{ type:'combatReset', roundId:room.roundId, hostId:room.hostId, players:[...room.players.values()].map(publicPlayer) });
+      broadcast(room,{ type:'combatReset', roundId:room.roundId, hostId:room.hostId,mode:room.mode,options:{...room.options}, players:[...room.players.values()].map(publicPlayer) });
       maps(room);
     } else if (data.type === 'leave') close(peer, 1000, '已离开');
     else invalid(peer, '不支持的消息类型');
@@ -376,11 +390,11 @@ function createLanServer(options = {}) {
     socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`);
     socket.setNoDelay(true); socket.setKeepAlive(true, 15000);
     const peer = { socket, address, buffer: Buffer.alloc(0), fragments: null, fragmentBytes: 0, invalid: 0,
-      poseSeq: -1, shotSeq: -1, reloadSeq:-1, hazardSeq:-1,
+      poseSeq: -1, shotSeq: -1, reloadSeq:-1, hazardSeq:-1,interactSeq:-1,respawnSeq:-1,
       poseToken: bucket(4, 20), shotToken: bucket(6, 15), frameToken: bucket(160, 120),
       // A host also confirms shots/damage for all 20 members; retain the smaller guest budget.
       hostFrameToken:bucket(768,512), authorityToken:bucket(600,400),
-      reloadToken:bucket(2,2), hazardToken:bucket(4,3), resetToken:bucket(1,.5),
+      reloadToken:bucket(2,2), hazardToken:bucket(4,3), resetToken:bucket(1,.5),interactToken:bucket(6,10),respawnToken:bucket(1,1),
       joinedAt: now, lastPing: now, ping: null, closed: false, cleaned: false, room: null };
     peers.add(peer);
     socket.on('data', chunk => receive(peer, chunk));

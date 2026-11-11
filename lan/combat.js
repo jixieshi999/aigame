@@ -75,6 +75,8 @@
     let lastTick=performance.now(), accumulator=0, snapshotAt=0, worldSeq=0, eventSeq=0, lastWorldSeq=-1, lastEventSeq=-1;
     let reloadSeq=0, hazardSeq=0, currentEnemy=null, currentAttacker=null, offset=null, latestWorld=null, replaying=false;
     let projectiles=[], boltCounter=0;
+    let mode='pvp',shared=null,coop=null;
+    const saturation=G.render.post?.saturation??1;
     const stats={ simulations:0, worldsSent:0, worldsReceived:0, acceptedShots:0, rejectedShots:0, damage:0,
       explosions:0, remoteExplosions:0, boltHits:0, disposed:0, identityLeaks:0 };
     const projectileRoot=new T.Group(); projectileRoot.name='LAN authoritative projectiles'; projectileRoot.layers.set(0);
@@ -92,7 +94,9 @@
       const now=Date.now(), pos=info.pose?.pos || values(G.level.playerStart.pos);
       const actor={ id:info.playerId, pos:new T.Vector3(...pos), eye:new T.Vector3(), vel:new T.Vector3(),
         health:100, ammo:30,reserve:150,reloadUntil:0,ackShot:0,stats:{shots:0,hits:0,kills:0},
-        lastDamage:now,lastPose:now,lastHazard:-1,lastReload:-1,fireTokens:3,fireAt:now,crouching:false,speed:0 };
+        lastDamage:now,lastPose:now,lastHazard:-1,lastReload:-1,fireTokens:3,fireAt:now,crouching:false,speed:0,
+        nickname:info.nickname,team:info.team,deaths:0,respawns:0,respawnAt:null,invulnUntil:0,lastAttacker:null,spawnSlot:null,
+        needsSpawn:mode==='coop',yaw:info.pose?.yaw||0,ignorePoseUntil:0 };
       actor.proxy={ pos:actor.pos, eye:actor.eye, vel:actor.vel, get alive(){return actor.health>0&&Date.now()-actor.lastPose<3000;},
         get health(){return actor.health;}, get crouching(){return actor.crouching;}, get speed(){return actor.speed;},
         damage(amount,from){damage(actor,amount,from);} };
@@ -103,25 +107,28 @@
       for (const id of actors.keys()) if (!ids.has(id)) actors.delete(id);
       for (const info of players) {
         if (!actors.has(info.playerId)) actors.set(info.playerId,makeActor(info));
+        Object.assign(actors.get(info.playerId),{nickname:info.nickname,team:info.team});
         if (info.pose) pose(info.pose);
       }
     }
     function pose(data) {
       const actor=actors.get(data.playerId); if (!actor) return;
+      if(Date.now()<actor.ignorePoseUntil)return;
       const now=Date.now(), seconds=Math.max(.025,Math.min(.3,(now-actor.lastPose)/1000));
       const next=new T.Vector3(...data.pos);
       actor.vel.copy(next).sub(actor.pos).multiplyScalar(1/seconds); actor.speed=Math.min(12,Math.hypot(actor.vel.x,actor.vel.z));
       actor.pos.copy(next); actor.crouching=!!data.crouching; actor.eye.copy(next); actor.eye.y+=actor.crouching?1.05:1.68;
-      actor.lastPose=now;
+      actor.lastPose=now;actor.yaw=data.yaw;
     }
     function localPose() {
       const actor=actors.get(selfId); if (!actor) return;
       actor.pos.copy(player.pos); actor.eye.copy(player.eye); actor.vel.copy(player.vel); actor.speed=player.speed;
-      actor.crouching=player.crouching; actor.lastPose=Date.now();
+      actor.crouching=player.crouching; actor.lastPose=Date.now();actor.yaw=player.yaw;
     }
     function actorState(actor) {
       return { playerId:actor.id,health:rounded(actor.health),alive:actor.health>0,ammo:actor.ammo,reserve:actor.reserve,
-        reloading:actor.reloadUntil>Date.now(),ackShot:actor.ackShot,stats:{...actor.stats} };
+        reloading:actor.reloadUntil>Date.now(),ackShot:actor.ackShot,stats:{...actor.stats},deaths:actor.deaths,
+        respawnIn:window.LanFlowShared.respawnRemaining(actor,Date.now()),invuln:Date.now()<actor.invulnUntil };
     }
     function applySelf(data,from) {
       if (!data||data.playerId!==selfId) return;
@@ -131,7 +138,7 @@
         player.invulnerable=false;
         saved.damage.call(player,lost,from||null);
       }
-      player.health=data.health; player.alive=data.alive; player.invulnerable=false;
+      player.health=data.health; player.alive=data.alive; player.invulnerable=!!data.invuln;
       G.weapon.ammo=Math.max(0,data.ammo-pendingShots.size); G.weapon.reserve=data.reserve;
       Object.assign(G.combat.stats,data.stats);
     }
@@ -183,7 +190,7 @@
       else if (running()&&amount>0) send({type:'hazard',roundId,seq:++hazardSeq,amount:Math.min(100,amount),reason:amount===12?'rescue':'fall'});
     });
     replace(player,'heal',original=>function(amount) { if (!attached) return original.call(this,amount); });
-    replace(player,'reset',original=>function(...args) { if (!attached||initializing) return original.apply(this,args); });
+    saved.playerReset=replace(player,'reset',original=>function(...args) { if (!attached||initializing) return original.apply(this,args); });
     replace(player,'update',original=>function(dt) {
       if (!attached) return original.call(this,dt);
       original.call(this,dt);
@@ -250,7 +257,7 @@
       if (!attached||initializing) return original.apply(this,args);
       if (isHost()) send({type:'roundReset',roundId}); else warn('只有房主可以重开战斗');
     });
-    replace(G.game,'debugCut',original=>function(...args) { if (!attached) return original.apply(this,args);warn('共享任务将在阶段D开放'); });
+    replace(G.game,'debugCut',original=>function(...args) { if (!attached) return original.apply(this,args);warn('联机中继需在场景内按住交互键切断'); });
     replace(G.game,'update',original=>function(dt) {
       if (!attached) return original.call(this,dt);
       // Ending shared combat must not stop the local movement/look frame loop.
@@ -384,9 +391,11 @@
       }
       for(const id of [...puppets.keys()])if(!seen.has(id))removePuppet(id);
       for(const data of message.players)applySelf(data);
+      if(message.flow)coop.apply(message.flow);
       warn(`已同步 ${message.enemies.filter(e=>e.alive).length} 个敌人 · 生命 ${Math.ceil(player.health)}`);
     }
     function presentEvent(event) {
+      shared.present(event);coop.present(event);
       if(event.kind==='shotResult') {
         if(event.hit) {
           G.fx.sparks(new T.Vector3(...event.point),new T.Vector3(...event.normal),event.killed?12:5);
@@ -434,7 +443,8 @@
           lens:[enemy.lens.color.r,enemy.lens.color.g,enemy.lens.color.b].map(rounded),targetId:enemy.lanTarget||null});
       }
       return {type:'world',roundId,seq:++worldSeq,enemies,players:[...actors.values()].map(actorState),
-        bolts:projectiles.map(b=>({id:b.id,pos:values(b.pos).map(rounded),dir:values(b.dir).map(rounded)}))};
+        bolts:projectiles.map(b=>({id:b.id,pos:values(b.pos).map(rounded),dir:values(b.dir).map(rounded)})),
+        ...(coop.active()?{flow:coop.snapshot()}:{})};
     }
     function tick() {
       const now=performance.now(),elapsed=Math.min(.1,Math.max(0,(now-lastTick)/1000));lastTick=now;
@@ -443,6 +453,7 @@
       if(!isHost()||!running())return;
       localPose();accumulator+=elapsed;
       while(accumulator>=1/30) {
+        shared.tick();coop.tick(1/30);
         accumulator-=1/30;saved.enemyUpdate.call(G.enemies,1/30);updateBolts(1/30);stats.simulations++;
         for(const actor of actors.values()) {
           finishReload(actor,Date.now());
@@ -456,9 +467,27 @@
         warn(`房主：统一模拟 ${data.enemies.filter(e=>e.alive).length} 个敌人 · 生命 ${Math.ceil(player.health)}`);
       }
     }
+    function emit(event){netEvent(event);presentEvent(event);}
+    function resetSelf(event) {
+      const wasDead=!player.alive||G.game.state==='dead';
+      initializing=true;
+      try{saved.playerReset.call(player,{pos:new T.Vector3(...event.pos),yaw:event.yaw});G.weapon.reset();}
+      finally{initializing=false;}
+      player.ads=0;player.enabled=true;
+      if(wasDead) {
+        if(G.render.post){G.render.post.fade=0;G.render.post.saturation=saturation;}
+        G.game.state='paused';G.game.resume();
+      }
+      if(coop.active())coop.apply(coop.snapshot());
+    }
+    const flowContext={G,actors,emit,resetSelf,send:message=>send({...message,roundId}),self:()=>selfId,isHost,
+      aliveEnemies:()=>G.enemies.list.filter(e=>e.active&&e.alive),alert:(pos,radius)=>saved.alert.call(G.enemies,pos,radius)};
+    shared=window.LanFlowShared.create(flowContext);
+    coop=window.LanFlowCoop.create({...flowContext,shared});
     const timer=setInterval(tick,1000/30);
     function render(now) {
       if(!attached)return;
+      coop.render(now);
       const target=now-(offset||0)-100;
       for(const puppet of puppets.values()) {
         let left=puppet.samples[0],right=left;
@@ -482,7 +511,7 @@
       }
     }
     function initialize(data) {
-      attached=true;selfId=data.playerId||selfId;hostId=data.hostId;roundId=data.roundId;state=data.combatStatus||'waiting';mapOk=false;
+      attached=true;selfId=data.playerId||selfId;hostId=data.hostId;roundId=data.roundId;state=data.combatStatus||'waiting';mapOk=false;mode=data.mode||mode;
       actors.clear();roster(data.players);clearPuppets();pendingShots.clear();projectiles=[];latestWorld=null;
       worldSeq=eventSeq=reloadSeq=hazardSeq=0;lastWorldSeq=lastEventSeq=-1;offset=null;snapshotAt=0;accumulator=0;lastTick=performance.now();
       initializing=true;
@@ -491,12 +520,15 @@
         if (state==='ended') saved.clear.call(G.enemies);
       }
       finally {initializing=false;}
-      lockMenus(true);G.weapon.debug.noFire=true;G.hud.setObjective('联机战斗：消灭港区机械守卫');G.hud.setMarkers([]);
+      shared.initialize({...data,mode});coop.initialize({...data,mode});
+      lockMenus(true);G.weapon.debug.noFire=true;
+      if(!coop.active()){G.hud.setObjective('联机战斗：消灭港区机械守卫');G.hud.setMarkers([]);}
       warn(state==='ended'?'本轮已结束，仍可移动；房主按 F2 重开战斗':isHost()?'房主：等待地图校验':'等待房主同步敌人');
     }
     function detach(resume=true) {
       if(!attached)return;
       attached=false;mapOk=false;clearPuppets();projectiles=[];actors.clear();pendingShots.clear();latestWorld=null;
+      shared.detach();coop.detach();
       for(const mesh of boltMeshes)mesh.visible=false;
       G.weapon.debug.noFire=false;lockMenus(false);saved.clear.call(G.enemies);
       if(resume)saved.gameStart.call(G.game,{skipIntro:true});
@@ -507,7 +539,7 @@
       status(data){hostId=data.hostId;state=data.status;if(state==='ended'){clearPuppets();projectiles=[];latestWorld=null;saved.clear.call(G.enemies);}if(data.reason)warn(data.reason);},
       snapshot(){return {attached,isHost:isHost(),state,roundId,sourceActive:G.enemies.list.filter(e=>e.active&&e.alive).length,puppetCount:puppets.size,
         enemies:(isHost()?G.enemies.list.filter(e=>e.active&&e.rig.group.visible).map(e=>({id:`e${e.id}`,kind:e.type,hp:e.hp,alive:e.alive,pos:values(e.pos),targetId:e.lanTarget||null})):latestWorld?.enemies.map(e=>({id:e.id,kind:e.kind,hp:e.hp,alive:e.alive,pos:e.pos,targetId:e.targetId}))||[]),
-        players:latestWorld?.players.map(p=>({...p,stats:{...p.stats}}))||[],stats:{...stats},worldSeq:isHost()?worldSeq:lastWorldSeq,
+        players:latestWorld?.players.map(p=>({...p,stats:{...p.stats}}))||[],flow:coop.snapshot(),spawn:shared.snapshot(),stats:{...stats},worldSeq:isHost()?worldSeq:lastWorldSeq,
         independentSkeletons:[...puppets.values()].every(p=>[...p.skeletons.values()].every(s=>s.bones.every(b=>p.bones.includes(b))))};},
       destroy(){detach(false);clearInterval(timer);window.removeEventListener('click',preventReset,true);for(const remove of removers.reverse())remove();projectileRoot.removeFromParent();boltGeometry.dispose();boltMaterial.dispose();}
     };

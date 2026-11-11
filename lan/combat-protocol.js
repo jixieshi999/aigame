@@ -13,9 +13,47 @@ function cleanPlayer(p, playerIds) {
   const stats = p && statistics(p.stats);
   if (!p || !playerIds.has(p.playerId) || !scalar(p.health) || p.health < 0 || p.health > 100 ||
       typeof p.alive !== 'boolean' || p.alive !== (p.health > 0) || !count(p.ammo,30) || !count(p.reserve,150) ||
-      typeof p.reloading !== 'boolean' || !count(p.ackShot,Number.MAX_SAFE_INTEGER) || !stats) return null;
+      typeof p.reloading !== 'boolean' || !count(p.ackShot,Number.MAX_SAFE_INTEGER) || !stats ||
+      !count(p.deaths??0,10000000) || (p.respawnIn!=null&&(!Number.isFinite(p.respawnIn)||p.respawnIn<0||p.respawnIn>60)) ||
+      (p.invuln!==undefined&&typeof p.invuln!=='boolean')) return null;
   return { playerId:p.playerId, health:p.health, alive:p.alive, ammo:p.ammo, reserve:p.reserve,
-    reloading:p.reloading, ackShot:p.ackShot, stats };
+    reloading:p.reloading, ackShot:p.ackShot, stats, deaths:p.deaths??0,respawnIn:p.respawnIn??null,invuln:p.invuln??false };
+}
+const unit=n=>Number.isFinite(n)&&n>=0&&n<=1;
+const timer=n=>Number.isFinite(n)&&n>=0&&n<=10000000;
+/** Coop state contains only bounded numerical state and known objective IDs. */
+function cleanFlow(f) {
+  if(!f||f.kind!=='coop'||!['active','extract','complete','failed'].includes(f.phase)||!timer(f.time)||
+      !Array.isArray(f.relays)||f.relays.length<1||f.relays.length>16||!count(f.cut,16)||f.total!==f.relays.length||
+      !count(f.wave,1000)||!timer(f.waveHot)||typeof f.allCut!=='boolean'||!count(f.pursuitLeft,1000))return null;
+  const seen=new Set(),relays=[];
+  for(const r of f.relays) {
+    if(!r||!id(r.id)||r.id.length>32||seen.has(r.id)||typeof r.cut!=='boolean'||!unit(r.t)||!count(r.cutters,20)||(r.cut&&r.t!==1))return null;
+    seen.add(r.id);relays.push({id:r.id,cut:r.cut,t:r.t,cutters:r.cutters});
+  }
+  if(f.cut!==relays.filter(r=>r.cut).length||f.allCut!==(f.cut===f.total)||(['extract','complete'].includes(f.phase)&&!f.allCut))return null;
+  const e=f.extraction;
+  if(!e||typeof e.open!=='boolean'||e.open!==f.allCut||!count(e.inZone,20)||!count(e.needed,20)||e.inZone>e.needed||!unit(e.hold))return null;
+  let result=null;
+  if(f.result!==null) {
+    const r=f.result;
+    if(!r||!timer(r.time)||!['shots','hits','kills','respawns'].every(k=>count(r[k],10000000))||r.hits>r.shots||
+        !count(r.rating,5)||(r.accuracy!==null&&!unit(r.accuracy)))return null;
+    result={time:r.time,shots:r.shots,hits:r.hits,kills:r.kills,respawns:r.respawns,rating:r.rating,accuracy:r.accuracy};
+  }
+  if(['complete','failed'].includes(f.phase)!==(result!==null))return null;
+  return {kind:'coop',phase:f.phase,time:f.time,relays,cut:f.cut,total:f.total,wave:f.wave,waveHot:f.waveHot,
+    allCut:f.allCut,pursuitLeft:f.pursuitLeft,extraction:{open:e.open,inZone:e.inZone,needed:e.needed,hold:e.hold},result};
+}
+function cleanOptions(options,mode) {
+  if(!options||typeof options!=='object'||Array.isArray(options)||Object.keys(options).some(k=>!['friendlyFire','npcs','scoreLimit','timeLimitSec','respawnSec','rebalance'].includes(k)))return null;
+  for(const key of ['friendlyFire','rebalance'])if(options[key]!==undefined&&typeof options[key]!=='boolean')return null;
+  if(options.npcs!==undefined&&!['off','both'].includes(options.npcs))return null;
+  for(const [key,min,max] of [['scoreLimit',5,200],['timeLimitSec',60,3600],['respawnSec',1,60]]) {
+    if(options[key]!==undefined&&(!Number.isInteger(options[key])||options[key]<min||options[key]>max))return null;
+  }
+  if(mode==='coop')return {respawnSec:options.respawnSec??10};
+  return {...options}; // E will apply these options; D preserves C's PvP behaviour.
 }
 /** Return a detached, allowlisted world, or null on malformed authority data. */
 function cleanWorld(data, playerIds) {
@@ -41,11 +79,21 @@ function cleanWorld(data, playerIds) {
     if (!b || !id(b.id) || boltIds.has(b.id) || !vec(b.pos) || !vec(b.dir) || Math.abs(Math.hypot(...b.dir)-1) > .1) return null;
     boltIds.add(b.id); bolts.push({ id:b.id, pos:copy(b.pos), dir:copy(b.dir) });
   }
-  return { enemies, players, bolts };
+  const flow=data.flow===undefined?undefined:cleanFlow(data.flow);
+  if(data.flow!==undefined&&!flow)return null;
+  return { enemies, players, bolts,...(flow?{flow}:{}) };
 }
 /** Validate only presentation/confirmation events, never arbitrary game-bus payloads. */
 function cleanEvent(e, playerIds) {
   if (!e || typeof e !== 'object') return null;
+  if(e.kind==='respawn'&&playerIds.has(e.playerId)&&vec(e.pos)&&Number.isFinite(e.yaw)&&Math.abs(e.yaw)<=100000&&timer(e.invulnSec)&&e.invulnSec<=60)
+    return {kind:e.kind,playerId:e.playerId,pos:copy(e.pos),yaw:e.yaw,invulnSec:e.invulnSec};
+  if(e.kind==='objectiveDone'&&typeof e.objectiveId==='string'&&/^[a-zA-Z0-9_-]{1,32}$/.test(e.objectiveId)&&count(e.total,16)&&e.total>0&&count(e.index,e.total)&&e.index>0)
+    return {kind:e.kind,objectiveId:e.objectiveId,index:e.index,total:e.total};
+  if(e.kind==='waveWarning'&&vec(e.centroid))return {kind:e.kind,centroid:copy(e.centroid)};
+  if(e.kind==='radio'&&['intro','contact','cut1','cut2','all','low','done'].includes(e.key))return {kind:e.kind,key:e.key};
+  if(e.kind==='phase'&&['active','extract','complete','failed'].includes(e.phase))return {kind:e.kind,phase:e.phase};
+  if(e.kind==='roundEnd'&&['complete','failed'].includes(e.result)&&(e.winnerTeam===undefined||e.winnerTeam===null))return {kind:e.kind,result:e.result,winnerTeam:null};
   if (e.kind === 'hurt' && playerIds.has(e.playerId) && scalar(e.health) && e.health >= 0 && e.health <= 100 &&
       scalar(e.amount) && e.amount > 0 && e.amount <= 100 && vec(e.from)) {
     return { kind:e.kind, playerId:e.playerId, health:e.health, amount:e.amount, from:copy(e.from) };
@@ -67,4 +115,4 @@ function cleanEvent(e, playerIds) {
   }
   return null;
 }
-module.exports = { cleanWorld, cleanEvent, boneCounts };
+module.exports = { cleanWorld, cleanEvent, cleanFlow,cleanOptions,boneCounts };

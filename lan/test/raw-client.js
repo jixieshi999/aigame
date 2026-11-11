@@ -81,7 +81,7 @@ class RawClient {
       this.waiters.push(waiter);
     });
   }
-  send(message) { this.socket.write(clientFrame(1, JSON.stringify({ v: 2, ...message }))); }
+  send(message) { this.socket.write(clientFrame(1, JSON.stringify({ v: 3, ...message }))); }
   destroy() { this.socket.destroy(); }
 }
 module.exports = { RawClient, clientFrame };

@@ -137,7 +137,7 @@ test('invalid JSON/types/round/pose ignored; allowed fields and source identity 
 test('pose 20Hz token bucket and shot bucket discard bursts', async t => {
   const f = await fixture(t), a = await f.join();
   const frames = [];
-  for (let i = 0; i < 60; i++) frames.push(clientFrame(1, JSON.stringify({ v: 2, ...pose(a.joined, i) })));
+  for (let i = 0; i < 60; i++) frames.push(clientFrame(1, JSON.stringify({ v: 3, ...pose(a.joined, i) })));
   const poseAt=performance.now();
   a.socket.write(Buffer.concat(frames)); a.socket.write(clientFrame(9, 'barrier'));
   await a.next('$pong');
@@ -145,7 +145,7 @@ test('pose 20Hz token bucket and shot bucket discard bursts', async t => {
   const poseBudget=4+Math.ceil((performance.now()-poseAt)*20/1000);
   assert.ok(f.app.metrics.poses<=poseBudget);assert.ok(f.app.metrics.poseLimited>=60-poseBudget);assert.ok(f.app.metrics.poseLimited>0);
   const shots = [];
-  for (let i = 0; i < 20; i++) shots.push(clientFrame(1, JSON.stringify({ v: 2, type: 'shot', roundId: a.joined.roundId,
+  for (let i = 0; i < 20; i++) shots.push(clientFrame(1, JSON.stringify({ v: 3, type: 'shot', roundId: a.joined.roundId,
     seq: i, origin: [0, 1, 0], muzzle: [0, 1, -.5], dir: [0, 0, -1] })));
   const shotAt=performance.now();
   a.socket.write(Buffer.concat(shots)); a.socket.write(clientFrame(9, 'barrier2'));
@@ -156,7 +156,7 @@ test('pose 20Hz token bucket and shot bucket discard bursts', async t => {
 
 test('fragmented UTF-8 join, interleaved ping and arbitrary TCP splits', async t => {
   const f = await fixture(t), c = await f.connect();
-  const text = Buffer.from(JSON.stringify({ v: 2, ...joinData({ nickname: '猫猫' }) }));
+  const text = Buffer.from(JSON.stringify({ v: 3, ...joinData({ nickname: '猫猫' }) }));
   const split = text.indexOf(Buffer.from('猫')) + 1;
   const first = clientFrame(1, text.subarray(0, split), { fin: false });
   c.socket.write(first.subarray(0, 1)); c.socket.write(first.subarray(1));
@@ -296,7 +296,33 @@ test('phase C host loss stops combat; promoted owner explicitly resets before pu
 });
 
 test('RFC6455 minimal 64-bit length accepts a bounded 65536-byte UTF-8 message', async t => {
-  const f=await fixture(t),c=await f.connect();const json=JSON.stringify({v:2,...joinData()});
+  const f=await fixture(t),c=await f.connect();const json=JSON.stringify({v:3,...joinData()});
   const data=Buffer.from(json+' '.repeat(MAX_MESSAGE-Buffer.byteLength(json)));assert.equal(data.length,65536);
   c.socket.write(clientFrame(1,data));assert.ok((await c.next('joined')).playerId);
+});
+
+test('v3 binds and rate limits flow intents, validates options and caches flow across late joins',async t=>{
+  const f=await fixture(t),a=await f.join({mode:'coop'}),b=await f.join({mode:'coop'}),round=a.joined.roundId;
+  const flow=require('../flow-coop').createFlow([{id:'relay_a'},{id:'relay_b'},{id:'relay_c'}]);
+  a.send(worldData(round,[a.joined.playerId,b.joined.playerId],{flow}));await b.next('world');
+  b.send({type:'interact',roundId:round,seq:1,objectiveId:'relay_a',active:true,playerId:a.joined.playerId});
+  assert.equal((await a.next('interactIntent')).playerId,b.joined.playerId);
+  b.send({type:'respawn',roundId:round,seq:1,playerId:a.joined.playerId});
+  assert.equal((await a.next('respawnIntent')).playerId,b.joined.playerId);
+  for(let seq=2;seq<22;seq++)b.send({type:'interact',roundId:round,seq,objectiveId:'relay_a',active:true});
+  b.send({type:'respawn',roundId:round,seq:2});b.socket.write(clientFrame(9,'flow-barrier'));await b.next('$pong');
+  a.socket.write(clientFrame(9,'flow-host-barrier'));await a.next('$pong');
+  assert.ok(a.messages.filter(m=>m.type==='interactIntent').length<=6);assert.equal(a.messages.filter(m=>m.type==='respawnIntent').length,0);
+  assert.equal(b.messages.filter(m=>m.type==='interactIntent').length,0);
+  const c=await f.join({mode:'coop'});assert.deepEqual((await c.next('world')).flow,flow);
+  c.send({type:'interact',roundId:round,seq:1,objectiveId:'x'.repeat(33),active:true});await c.next('error');
+  c.send({type:'interact',roundId:round,seq:2,objectiveId:'relay_a',active:'true'});await c.next('error');
+  c.send({type:'combatEvent',roundId:round,seq:1,event:{kind:'phase',phase:'extract'}});await c.next('error');
+  a.send({type:'roundReset',roundId:round,options:{respawnSec:1,npcs:'both'}});
+  const reset=await b.next('combatReset');assert.deepEqual(reset.options,{respawnSec:1});
+  b.send({type:'interact',roundId:round,seq:100,objectiveId:'relay_a',active:true});
+  b.send({type:'respawn',roundId:round,seq:100});
+  a.send(worldData(reset.roundId,[a.joined.playerId,b.joined.playerId,c.joined.playerId],{flow}));await b.next('world');
+  const old=new RawClient(f.port);t.after(()=>old.destroy());await old.next('hello');old.send({...joinData(),v:2});
+  assert.match((await old.next('error')).reason,/版本3/);
 });
