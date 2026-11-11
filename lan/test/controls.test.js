@@ -61,6 +61,25 @@ async function main() {
     report.checks.push('活动战斗真实鼠标和WASD可操作，名字牌存在');
     console.log('PASS: 活动战斗真实鼠标和WASD可操作');
 
+    console.log('验证个人死亡、权威10秒倒计时、点击复活及真实键鼠');
+    await page.waitForTimeout(3200);
+    const beforeDeath=await read(page);
+    await page.evaluate(()=>__G.player.damage(100));
+    await page.waitForSelector('#lan-life:not([hidden])');
+    assert.equal(await page.locator('#lan-respawn').isDisabled(),true);
+    await page.waitForFunction(()=>!document.getElementById('lan-respawn').disabled,null,{timeout:20000});
+    await page.locator('#lan-respawn').click();
+    await page.waitForFunction(()=>__G.player.alive&&__G.game.state==='playing');
+    report.revived=await controls(page);
+    assert.ok(report.revived.distance>.5,'复活后必须响应真实WASD');
+    assert.ok(report.revived.look>.01,'复活后必须响应真实鼠标');
+    const afterRevive=await read(page),self=afterRevive.lan.combat.players.find(p=>p.playerId===afterRevive.lan.playerId);
+    assert.equal(self.deaths,1);assert.equal(self.ammo,30);assert.equal(self.reserve,150);assert.equal(self.health,100);
+    assert.equal(afterRevive.lan.combat.flow.cut,beforeDeath.lan.combat.flow.cut);
+    assert.equal(afterRevive.lan.combat.sourceActive,0);
+    assert.equal(afterRevive.lan.combat.players.find(p=>p.playerId===joined.playerId).deaths,0);
+    report.checks.push(`个人死亡倒计时与点击复活正常；真实移动${report.revived.distance.toFixed(2)}m，转向${report.revived.look.toFixed(3)}rad，满生命弹药且队友/中继未重置`);
+
     console.log('刷新房主，保留另一位在线成员后重新加入原房间');
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 120000 });
     await page.waitForFunction(() => window.__LAN && __LAN.snapshot().connected && __LAN.snapshot().combat?.state === 'ended', null, { timeout: 120000 });

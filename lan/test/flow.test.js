@@ -72,3 +72,12 @@ test('D3 pursuit waits for empty queue and low alive count; spawn score consider
   assert.ok(C.spawnScore([20,0,0],players,()=>false,undefined,0)>C.spawnScore([39,0,0],players,()=>false,undefined,0));
   assert.ok(C.spawnScore([20,0,0],players,()=>false,undefined,0)>C.spawnScore([20,0,0],players,()=>true,0,1));
 });
+test('D4 authority death, respawn countdown, protection and all-down rules',()=>{
+  const a={health:100,deaths:2,respawnAt:null,invulnUntil:3000};assert.equal(S.damageState(a,100,2000),null);
+  const dead={...a,...S.damageState(a,100,4000,10)};assert.equal(dead.health,0);assert.equal(dead.deaths,3);
+  assert.equal(S.respawnRemaining(a,4000),null);assert.equal(S.respawnRemaining(dead,4500),9.5);
+  assert.equal(S.canRespawn(dead,13999),false);assert.equal(S.canRespawn(dead,14000),true);
+  assert.equal(S.damageState(dead,100,5000),null);assert.ok(S.allDown([dead,{...dead,respawnAt:99999}]));
+  assert.equal(S.allDown([dead,a]),false);assert.equal(S.allDown([]),false);
+  assert.equal(S.canRespawn(a,99999),false);
+});

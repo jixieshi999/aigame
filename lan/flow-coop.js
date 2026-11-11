@@ -63,7 +63,13 @@
     return jitter+(distance>=minDist?2+Math.min(1,(distance-minDist)/30)*.5:-(minDist-distance)/4)+
       (live.every(a=>!visible(p,array(a.pos)))?2.5:0)+(recent!==undefined&&time-recent<6?-3:0);
   }
-  const api={createFlow,shortName,objectiveText,validInteraction,advanceRelay,commitRelay,RULES,multiplier,maxAlive,scaled,waveQueue,dueSpawn,queueAttempt,pursuitStep,spawnScore};
+  function summarize(time,actors) {
+    const totals=actors.reduce((s,a)=>({shots:s.shots+a.stats.shots,hits:s.hits+a.stats.hits,kills:s.kills+a.stats.kills,respawns:s.respawns+(a.respawns||0)}),{shots:0,hits:0,kills:0,respawns:0});
+    const accuracy=totals.shots?Math.min(1,totals.hits/totals.shots):null;
+    const rating=(time<270?2:time<400?1:0)+(accuracy>=.5?2:accuracy>=.3?1:0)+(totals.respawns===0?1:0);
+    return {time,...totals,accuracy,rating};
+  }
+  const api={createFlow,shortName,objectiveText,validInteraction,advanceRelay,commitRelay,RULES,multiplier,maxAlive,scaled,waveQueue,dueSpawn,queueAttempt,pursuitStep,spawnScore,summarize};
   if(typeof window==='undefined'){module.exports=api;return;}
   function create(ctx) {
     const {G}=ctx;
@@ -123,12 +129,18 @@
       if(state.allCut)markers.push({id:'extract',short:'撤离',label:'撤离艇',pos:G.level.extraction.pos,kind:'extract'});
       G.hud.setMarkers(markers);
     }
+    function finish(phase) {
+      state.phase=phase;state.result=summarize(state.time,[...ctx.actors.values()]);queue=[];holds.clear();
+      state.relays.forEach(r=>r.cutters=0);
+      ctx.emit({kind:'phase',phase});ctx.emit({kind:'roundEnd',result:phase,winnerTeam:null});
+    }
     return {
       initialize(data){enabled=data.mode==='coop';state=enabled?createFlow(G.level.objectives):null;seq=0;holding=null;holds.clear();used.clear();queue=[];pursuitT=12;contactSaid=false;
         patrolPending=enabled&&ctx.isHost();if(enabled){G.enemies.clear();apply(state);}},
       tick(dt){
         if(!enabled||!ctx.isHost()||['complete','failed'].includes(state.phase))return;
         state.time+=dt;
+        if(window.LanFlowShared.allDown([...ctx.actors.values()])){finish('failed');apply(state);return;}
         for(let i=0;i<state.relays.length;i++) {
           const relay=state.relays[i];if(relay.cut)continue;
           const objective=G.level.objectives.find(o=>o.id===relay.id);

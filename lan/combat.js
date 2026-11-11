@@ -87,6 +87,7 @@
     const zAxis=new T.Vector3(0,0,1), temp=new T.Vector3();
     const isHost=()=>attached&&selfId===hostId;
     const running=()=>attached&&mapOk&&state!=='ended';
+    const fighting=()=>running()&&!coop?.terminal();
     function replace(object,key,fn) { const original=object[key]; object[key]=fn(original); removers.push(()=>{ object[key]=original; }); return original; }
     function warn(text) { onStatus(text); }
     function netEvent(event) { if (isHost()&&mapOk&&state!=='ended') send({type:'combatEvent',roundId,seq:++eventSeq,event}); }
@@ -132,6 +133,7 @@
     }
     function applySelf(data,from) {
       if (!data||data.playerId!==selfId) return;
+      shared.applyPlayer(data);
       for (const seq of pendingShots) if (seq<=data.ackShot) pendingShots.delete(seq);
       const lost=player.health-data.health;
       if (lost>0 && player.alive) {
@@ -143,8 +145,10 @@
       Object.assign(G.combat.stats,data.stats);
     }
     function damage(actor,amount,from) {
-      if (!isHost()||!running()||actor.health<=0||!(amount>0)) return;
-      const applied=Math.min(actor.health,100,amount); actor.health=Math.max(0,actor.health-applied); actor.lastDamage=Date.now(); stats.damage++;
+      if (!isHost()||!fighting()||actor.health<=0||!(amount>0)) return;
+      const next=window.LanFlowShared.damageState(actor,amount,Date.now(),shared.options().respawnSec||10);
+      if(!next)return;
+      const applied=actor.health-next.health;Object.assign(actor,next);actor.lastDamage=Date.now();stats.damage++;
       const source=from ? values(from) : values(actor.pos);
       netEvent({kind:'hurt',playerId:actor.id,health:rounded(actor.health),amount:applied,from:source});
       if (actor.id===selfId) applySelf(actorState(actor),new T.Vector3(...source));
@@ -204,14 +208,14 @@
     });
     replace(G.combat,'enemyShot',original=>function(origin,dir,opts={}) {
       if (!attached) return original.call(this,origin,dir,opts);
-      if (!isHost()||!running()) return false;
+       if (!isHost()||!fighting()) return false;
       const wall=G.physics.raycast(origin,dir,opts.range||200), hit=hitActors(origin,dir,wall?Math.max(0,wall.dist-.001):opts.range||200);
       if (hit) { damage(hit.actor,opts.damage??6,origin); return true; }
       return false;
     });
     replace(G.combat,'explode',original=>function(pos,radius=5,amount=80,source='player') {
       if (!attached) return original.call(this,pos,radius,amount,source);
-      if (!isHost()||!running()) return;
+      if (!isHost()||!fighting()) return;
       stats.explosions++;
       const credited=currentAttacker||actors.get(currentEnemy?.lanProvoker)||(source==='player'?actors.get(selfId):null);
       for (const enemy of [...G.enemies.list]) {
@@ -244,7 +248,7 @@
       boneOrders.set(enemy,Object.keys(enemy.rig.bones).sort().map(name=>enemy.rig.bones[name]));
       replace(enemy,'_update',original=>function(dt) {
         if (!attached) return original.call(this,dt);
-        if (!isHost()||!running()) return;
+        if (!isHost()||!fighting()) return;
         const previous=currentEnemy;currentEnemy=enemy;
         try { return withActor(selectActor(enemy),()=>original.call(this,dt)); } finally {currentEnemy=previous;}
       });
@@ -260,6 +264,7 @@
     replace(G.game,'debugCut',original=>function(...args) { if (!attached) return original.apply(this,args);warn('联机中继需在场景内按住交互键切断'); });
     replace(G.game,'update',original=>function(dt) {
       if (!attached) return original.call(this,dt);
+      if(coop?.active()&&(coop.terminal()||G.game.state==='dead')){G.game.menus.show('none');return !coop.terminal();}
       // Ending shared combat must not stop the local movement/look frame loop.
       if (G.game.state==='playing') {
         G.game.run.time+=dt;
@@ -310,9 +315,10 @@
       }
     }
     function intent(message) {
-      if (!isHost()||!running()) return;
+      if (!isHost()||!fighting()) return;
       localPose();const actor=actors.get(message.playerId); if (!actor) return;
       if(message.type==='interactIntent'){coop.intent(message);return;}
+      if(message.type==='respawnIntent'){shared.intent(message);return;}
       finishReload(actor,Date.now());
       if (message.type==='reloadIntent') {
         if (message.seq<=actor.lastReload) return;actor.lastReload=message.seq;
@@ -450,12 +456,14 @@
     function tick() {
       const now=performance.now(),elapsed=Math.min(.1,Math.max(0,(now-lastTick)/1000));lastTick=now;
       if(!attached)return;
-      G.weapon.debug.noFire=!running()||state!=='active';
+       G.weapon.debug.noFire=!fighting()||state!=='active';
       if(!isHost()||!running())return;
       localPose();accumulator+=elapsed;
       while(accumulator>=1/30) {
-        shared.tick();coop.tick(1/30);
-        accumulator-=1/30;saved.enemyUpdate.call(G.enemies,1/30);updateBolts(1/30);stats.simulations++;
+        if(!coop.terminal()){shared.tick();coop.tick(1/30);}
+        accumulator-=1/30;
+        if(!fighting())continue;
+        saved.enemyUpdate.call(G.enemies,1/30);updateBolts(1/30);stats.simulations++;
         for(const actor of actors.values()) {
           finishReload(actor,Date.now());
           if(actor.health>0&&Date.now()-actor.lastDamage>G.player.tuning.regenDelay*1000)actor.health=Math.min(100,actor.health+G.player.tuning.regenRate/30);
@@ -475,6 +483,9 @@
       try{saved.playerReset.call(player,{pos:new T.Vector3(...event.pos),yaw:event.yaw});G.weapon.reset();}
       finally{initializing=false;}
       player.ads=0;player.enabled=true;
+      pendingShots.clear();
+      const old=latestWorld?.players.find(p=>p.playerId===selfId);
+      if(old)Object.assign(old,{health:100,alive:true,ammo:30,reserve:150,reloading:false,respawnIn:null,invuln:true});
       if(wasDead) {
         if(G.render.post){G.render.post.fade=0;G.render.post.saturation=saturation;}
         G.game.state='paused';G.game.resume();
@@ -482,6 +493,7 @@
       if(coop.active())coop.apply(coop.snapshot());
     }
     const flowContext={G,actors,emit,resetSelf,send:message=>send({...message,roundId}),self:()=>selfId,isHost,
+      states:()=>isHost()?[...actors.values()].map(actorState):latestWorld?.players||[],
       aliveEnemies:()=>G.enemies.list.filter(e=>e.active&&e.alive),alert:(pos,radius)=>saved.alert.call(G.enemies,pos,radius)};
     shared=window.LanFlowShared.create(flowContext);
     coop=window.LanFlowCoop.create({...flowContext,shared});
@@ -489,6 +501,7 @@
     function render(now) {
       if(!attached)return;
       coop.render(now);
+      shared.render(coop.snapshot());
       const target=now-(offset||0)-100;
       for(const puppet of puppets.values()) {
         let left=puppet.samples[0],right=left;
@@ -542,7 +555,7 @@
         enemies:(isHost()?G.enemies.list.filter(e=>e.active&&e.rig.group.visible).map(e=>({id:`e${e.id}`,kind:e.type,hp:e.hp,alive:e.alive,pos:values(e.pos),targetId:e.lanTarget||null})):latestWorld?.enemies.map(e=>({id:e.id,kind:e.kind,hp:e.hp,alive:e.alive,pos:e.pos,targetId:e.targetId}))||[]),
         players:latestWorld?.players.map(p=>({...p,stats:{...p.stats}}))||[],flow:coop.snapshot(),spawn:shared.snapshot(),stats:{...stats},worldSeq:isHost()?worldSeq:lastWorldSeq,
         independentSkeletons:[...puppets.values()].every(p=>[...p.skeletons.values()].every(s=>s.bones.every(b=>p.bones.includes(b))))};},
-      destroy(){detach(false);clearInterval(timer);window.removeEventListener('click',preventReset,true);for(const remove of removers.reverse())remove();projectileRoot.removeFromParent();boltGeometry.dispose();boltMaterial.dispose();}
+      destroy(){detach(false);shared.destroy();coop.destroy();clearInterval(timer);window.removeEventListener('click',preventReset,true);for(const remove of removers.reverse())remove();projectileRoot.removeFromParent();boltGeometry.dispose();boltMaterial.dispose();}
     };
   }
   window.LanCombat=Object.freeze({create});
