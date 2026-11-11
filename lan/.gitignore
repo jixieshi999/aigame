@@ -1,0 +1,21 @@
+# Local publishing tools and credentials must never be committed.
+/.publish-tools/
+
+# Optional browser test dependencies and generated outputs.
+node_modules/
+package-lock.json
+test/artifacts*/
+test/node*-results.txt
+test/live-*-results.json
+*.log
+*.pid
+*.tmp
+__pycache__/
+.env
+.env.*
+
+# Editor and OS files.
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
