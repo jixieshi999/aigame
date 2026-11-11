@@ -2,7 +2,11 @@
 
 一个单文件浏览器射击游戏的局域网联机原型，欢迎一起把它做成能完整通关的多人游戏。**目前完成 A/B/C：进同一房间、看到队友、一起打同一批敌人。** 后续的共享任务、波次、复活、撤离和 PvP 等你来接力。
 
-![共享敌人实机画面](media/gameplay.png)
+双浏览器联机实机截图：双方加入同一房间，可以看到队友和一致的玩家列表。截图中打开了联机大厅，原游戏显示暂停菜单。
+
+![联机客户端视角：队友与联机大厅](media/11.png)
+
+![联机房主视角：另一端的队友与联机大厅](media/22.png)
 
 [接力路线图](ROADMAP.md) · [贡献指南](CONTRIBUTING.md) · [技术评估](NOTES.md) · [C 阶段验证](VERIFY-C-20261111.md) · [MIT 许可证](LICENSE)
 
@@ -92,7 +96,7 @@ New-NetFirewallRule -DisplayName '几猫 LAN TCP 8787' -Direction Inbound -Actio
 | `test/browser.test.js` | A/B 表现回归检查 |
 | `test/browser-combat.test.js` | C 真实游戏、真实鼠标开火、多浏览器战斗检查 |
 | `test/controls.test.js` | 真实键鼠检查：活动战斗、房主刷新、重开、暂停恢复 |
-| `media/gameplay.png` | C 共享敌人的实机截图 |
+| `media/11.png`、`media/22.png` | 双浏览器联机实机截图：客户端与房主视角 |
 | `test/artifacts*/` | 本机生成的浏览器证据，不随仓库提交 |
 | `ROADMAP.md`、`CONTRIBUTING.md`、`LICENSE` | 接力任务、开发约定与 MIT 许可 |
 
