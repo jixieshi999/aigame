@@ -460,7 +460,7 @@
       if(!isHost()||!running())return;
       localPose();accumulator+=elapsed;
       while(accumulator>=1/30) {
-        if(!coop.terminal()){shared.tick();coop.tick(1/30);}
+        shared.tick();if(!coop.terminal())coop.tick(1/30);
         accumulator-=1/30;
         if(!fighting())continue;
         saved.enemyUpdate.call(G.enemies,1/30);updateBolts(1/30);stats.simulations++;

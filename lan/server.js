@@ -438,7 +438,7 @@ if (require.main === module) {
     const app = createLanServer();
     app.server.on('error', error => { console.error(`启动失败：${error.message}`); process.exitCode = 1; });
     app.server.listen(port, '0.0.0.0', () => {
-      console.log(`几猫局域网 A/B/C 阶段 · 构建 ${app.build} · 协议 ${VERSION}`);
+      console.log(`几猫局域网 A/B/C/D 阶段 · 构建 ${app.build} · 协议 ${VERSION}`);
       console.log(`本机：http://localhost:${port}/`);
       for (const addresses of Object.values(os.networkInterfaces())) for (const address of addresses || []) {
         if (address.family === 'IPv4' && !address.internal) console.log(`局域网：http://${address.address}:${port}/`);

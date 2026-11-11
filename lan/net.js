@@ -119,7 +119,7 @@
   `;
   const panel = element('section', undefined, document.body); panel.id = 'lan-panel'; panel.setAttribute('aria-label', '局域网联机大厅');
   element('h2', '几猫 · 局域网联机', panel);
-  element('p', '阶段 C：共享敌人、血量与命中结算', panel, 'lan-note');
+  element('p', '合作：共享中继、波次、复活与撤离', panel, 'lan-note');
   function field(text, id, value, max) {
     const label = element('label', text, panel), input = element('input', undefined, label);
     input.id = id; input.value = value; input.maxLength = max; return input;
@@ -140,7 +140,7 @@
   const correction = element('p', undefined, panel); correction.hidden = true;
   const list = element('ul', undefined, panel); list.id = 'lan-players';
   element('p', 'F2 打开/收起大厅。锁鼠时 F2 先释放鼠标。关闭大厅后点击原游戏继续。', panel, 'lan-note');
-  element('p', '房主统一运行敌人和伤害；暂停时世界继续。中继、撤离与复活将在后续阶段开放。', panel, 'lan-note');
+  element('p', '按住 E 切断中继；倒下10秒后点击或按 Enter 复活。三处全断后全体存活队员撤离；暂停时世界继续。双阵营暂仅分队显示。', panel, 'lan-note');
   const toggle = element('button', '联机大厅 F2', document.body); toggle.id = 'lan-toggle';
   const badge = element('div', '联机：等待游戏就绪', document.body); badge.id = 'lan-status';
   function status(text) { statusText.textContent = text; updateBadge(); }

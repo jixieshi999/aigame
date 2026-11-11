@@ -21,7 +21,8 @@ async function main() {
     const context=await browser.newContext({viewport:{width:720,height:520}}),page=await context.newPage();
     page.on('pageerror',error=>report.errors.push({name,message:error.message}));
     page.on('console',message=>{if(message.type()==='error')report.errors.push({name,console:message.text(),location:message.location()});});
-    await page.goto(`http://127.0.0.1:${port}/?q=low&autostart=1&seed=4207&eseed=9001&lanAuto=1&lanRoom=COMBAT&lanName=${encodeURIComponent(name)}`,{waitUntil:'domcontentloaded',timeout:120000});
+    // C's original three-NPC fixtures run in the unchanged display-only PvP mode.
+    await page.goto(`http://127.0.0.1:${port}/?q=low&autostart=1&seed=4207&eseed=9001&lanAuto=1&lanMode=pvp&lanRoom=COMBAT&lanName=${encodeURIComponent(name)}`,{waitUntil:'domcontentloaded',timeout:120000});
     await page.waitForFunction(()=>window.__LAN&&(__LAN.snapshot().fatal||__LAN.snapshot().combat?.state==='active'),null,{timeout:120000});
     const data=await snap(page);assert.equal(data.fatal,false,JSON.stringify(data));assert.equal(data.connected,true);
     return page;

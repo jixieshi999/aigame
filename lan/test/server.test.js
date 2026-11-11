@@ -326,3 +326,17 @@ test('v3 binds and rate limits flow intents, validates options and caches flow a
   const old=new RawClient(f.port);t.after(()=>old.destroy());await old.next('hello');old.send({...joinData(),v:2});
   assert.match((await old.next('error')).reason,/版本3/);
 });
+test('v3 caches terminal flow, ignores old-round flow requests and rejects malformed new actor fields',async t=>{
+  const f=await fixture(t),a=await f.join({mode:'coop'}),b=await f.join({mode:'coop'}),round=a.joined.roundId;
+  const C=require('../flow-coop'),flow=C.createFlow([{id:'relay_a'}]);flow.phase='failed';flow.result=C.summarize(30,[]);
+  a.send(worldData(round,[a.joined.playerId,b.joined.playerId],{flow}));await b.next('world');
+  const c=await f.join({mode:'coop'});assert.deepEqual((await c.next('world')).flow,flow);
+  a.send(worldData(round,[],{seq:2,players:[{...actorState(a.joined.playerId),respawnIn:61}]}));await a.next('error');
+  a.send(worldData(round,[],{seq:2,players:[{...actorState(a.joined.playerId),deaths:-1}]}));await a.next('error');
+  a.send(worldData(round,[],{seq:2,players:[{...actorState(a.joined.playerId),invuln:'yes'}]}));await a.next('error');
+  a.send({type:'roundReset',roundId:round,options:{respawnSec:1}});const reset=await b.next('combatReset');
+  b.send({type:'interact',roundId:round,seq:1,objectiveId:'relay_a',active:true});b.send({type:'respawn',roundId:round,seq:1});
+  b.socket.write(clientFrame(9,'old-flow-barrier'));await b.next('$pong');a.socket.write(clientFrame(9,'host-flow-barrier'));await a.next('$pong');
+  assert.equal(a.messages.filter(m=>['interactIntent','respawnIntent'].includes(m.type)).length,0);
+  assert.equal(f.app.rooms.get('TEST').roundId,reset.roundId);assert.equal(f.app.rooms.get('TEST').world,null);
+});

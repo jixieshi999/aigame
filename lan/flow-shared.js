@@ -79,6 +79,7 @@
     const card=element('div',undefined,life);card.className='lan-flow-card';
     const lifeText=element('p','已倒下',card);lifeText.id='lan-life-text';
     const reviveButton=element('button','点击或按 Enter 复活',card);reviveButton.id='lan-respawn';
+    function hideLobby(){const panel=document.getElementById('lan-panel');if(panel)panel.hidden=true;}
     function requestRespawn(){
       if(life.hidden||reviveButton.disabled)return;
       // Request synchronously inside the user gesture, before the host round trip.
@@ -92,9 +93,9 @@
     function renderResult(flow){
       const terminal=flow&&['complete','failed'].includes(flow.phase);
       result.hidden=!terminal;if(!terminal){resultKey='';return;}
-      if(!resultKey){G.player.enabled=false;G.input.setGameplay(false);G.input.exitLock();G.hud.show(false);G.hud.setPrompt(null);}
+      if(!resultKey){hideLobby();G.player.enabled=false;G.input.setGameplay(false);G.input.exitLock();G.hud.show(false);G.hud.setPrompt(null);}
       G.game.menus.show('none');
-      const rows=ctx.states(),key=JSON.stringify([flow.phase,flow.result,rows.map(p=>[p.playerId,p.stats,p.deaths])]);
+      const rows=ctx.states(),key=JSON.stringify([flow.phase,flow.result,ctx.isHost(),rows.map(p=>[p.playerId,actors.get(p.playerId)?.nickname,p.stats,p.deaths])]);
       if(key===resultKey)return;resultKey=key;resultCard.replaceChildren();
       element('h2',flow.phase==='complete'?'合作撤离成功':'全员倒下 · 任务失败',resultCard);
       const r=flow.result;if(r){element('p',`用时 ${r.time.toFixed(1)} 秒 · 已切断 ${flow.cut}/${flow.total}`,resultCard);
@@ -116,7 +117,7 @@
       const npcs=G.enemies.list.filter(e=>e.active&&e.alive);
       let points=pools.coop;
       if(revive) {
-        const near=nearbySpawns(others,walkable).filter(p=>npcs.every(e=>distance(p,array(e.pos))>=15&&!visible(p,array(e.pos))));
+        const near=nearbySpawns(others,walkable).filter(p=>others.every(a=>a.health<=0||distance(p,array(a.pos))>=RULES.overlap)&&npcs.every(e=>distance(p,array(e.pos))>=15&&!visible(p,array(e.pos))));
         if(near.length)points=near;
       }
       const pos=chooseSpawn(points,others,npcs,used,now,visible);
@@ -141,6 +142,7 @@
         if(!enabled){life.hidden=result.hidden=true;return;}
         const terminal=flow&&['complete','failed'].includes(flow.phase);renderResult(flow);
         const dead=local&&!local.alive&&!terminal;
+        if(dead&&life.hidden)hideLobby();
         life.hidden=!dead;
         if(dead){G.game.menus.show('none');const remaining=local.respawnIn??0;
           lifeText.textContent=remaining>0?`已倒下 · ${Math.ceil(remaining)} 秒后可复活`:'已倒下 · 等待复活';

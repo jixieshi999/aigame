@@ -1,6 +1,6 @@
 # 欢迎接力
 
-这个项目目前可以两端进入同一房间、看到对方，并一起攻击同一批机械敌人。接下来最需要的是把共享战斗接成完整合作流程；也欢迎修复同步问题、改善手感和提交真实设备测试结果。
+这个项目已支持共享战斗、中继、波次、个人复活、全灭与撤离结算。接下来需要双队对抗与多设备性能验证；也欢迎修复同步问题、改善手感和提交真实设备测试结果。
 
 ## 开始前
 
@@ -26,6 +26,7 @@
 | `lan/combat-protocol.js` | 战斗快照、事件及数值白名单 |
 | `lan/net.js` | 大厅、地图摘要、远程玩家、名字牌、枪火 |
 | `lan/combat.js` | 房主战斗模拟、伤害归属、敌人骨骼显示 |
+| `lan/flow-shared.js`、`lan/flow-coop.js` | 出生/复活/结算的共用组件与房主合作流程 |
 | `lan/test/` | Node 单元/协议测试和可选浏览器测试 |
 
 ## 验证
@@ -33,10 +34,10 @@
 在仓库根目录运行：
 
 ```sh
-node --test lan/test/server.test.js lan/test/client.test.js lan/test/combat.test.js
+node --test lan/test/server.test.js lan/test/client.test.js lan/test/combat.test.js lan/test/flow.test.js
 ```
 
-已有32项测试。涉及界面/输入/同步时，另用两个浏览器在同一房间实测。浏览器自动化的安装和命令见 README；输出会写入被忽略的 `lan/test/artifacts*/`。
+已有48项测试（保留原32项）。涉及界面/输入/同步时，另用两个浏览器在同一房间实测。浏览器自动化的安装和命令见 README；输出会写入被忽略的 `lan/test/artifacts*/`。个人复活必须保留真实键鼠回归，不能调用 game.start 重置整局。
 
 反馈问题时请提供浏览器版本、操作系统、同机还是多设备、两端操作顺序、房主身份和预期/实际结果。截图可附大厅状态；控制台只读 `__LAN.snapshot()` 能帮助定位，但上传前请去掉不必要的个人或网络信息。
 

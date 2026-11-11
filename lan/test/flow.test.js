@@ -81,3 +81,39 @@ test('D4 authority death, respawn countdown, protection and all-down rules',()=>
   assert.equal(S.allDown([dead,a]),false);assert.equal(S.allDown([]),false);
   assert.equal(S.canRespawn(a,99999),false);
 });
+test('D5 extraction requires all living actors for 1.5 seconds, resets on exit and excludes dead actors',()=>{
+  const zone={pos:[29,0,20],radius:2.5},a={health:100,pos:[29,0,20]},b={health:100,pos:[31.5,0,20]},dead={health:0,pos:[0,0,0]};
+  let e={hold:0};e=C.extractionStep(e,[a,b,dead],zone,1);assert.equal(e.hold,0);assert.equal(e.inZone,1);assert.equal(e.needed,2);
+  e=C.extractionStep(e,[a,dead],zone,.75);assert.equal(e.hold,.5);e=C.extractionStep(e,[a,dead],zone,.75);assert.equal(e.hold,1);
+  assert.equal(C.extractionStep(e,[b],zone,.01).hold,0);assert.equal(C.extractionStep(e,[dead],zone,10).hold,0);
+  assert.equal(C.extractionStep(e,[{...a,pos:[29,3.5,20]}],zone,.1).hold,0);
+});
+test('D5 team result aggregates shots/hits/kills/respawns with original rating thresholds',()=>{
+  const actors=[{stats:{shots:8,hits:4,kills:2},respawns:0},{stats:{shots:2,hits:2,kills:1},respawns:0}];
+  assert.deepEqual(C.summarize(200,actors),{time:200,shots:10,hits:6,kills:3,respawns:0,accuracy:.6,rating:5});
+  assert.equal(C.summarize(270,actors).rating,4);assert.equal(C.summarize(400,actors).rating,3);
+  assert.equal(C.summarize(200,[{stats:{shots:0,hits:0,kills:0},respawns:1}]).rating,2);
+  assert.equal(C.summarize(200,[{stats:{shots:10,hits:3,kills:0},respawns:1}]).rating,3);
+  const f=C.createFlow([{id:'relay_a'}]);f.relays[0]={...f.relays[0],t:1};C.commitRelay(f,'relay_a');
+  f.phase='complete';f.result=C.summarize(200,actors);assert.ok(P.cleanFlow(f));
+});
+test('D2 relay IDs stay idempotent even while another relay is ready to commit',()=>{
+  const f=C.createFlow([{id:'relay_a'},{id:'relay_b'}]);f.relays.forEach(r=>r.t=1);
+  assert.ok(C.commitRelay(f,'relay_a'));assert.equal(C.commitRelay(f,'relay_a'),false);
+  assert.equal(f.cut,1);assert.ok(C.commitRelay(f,'relay_b'));assert.equal(f.cut,2);
+  assert.ok(P.cleanFlow(f));
+});
+test('D1 the same spawn allocator accommodates twenty living actors without overlap',()=>{
+  const points=S.buildSpawnPools(()=>true,()=>false).coop,players=[],used=[];
+  for(let i=0;i<20;i++){
+    const pos=S.chooseSpawn(points,players,[],used,1000,()=>false);
+    assert.ok(players.every(p=>S.distance(pos,p.pos)>=.8));players.push({health:100,pos});used.push({pos,at:1000});
+  }
+  assert.equal(players.length,20);
+});
+test('D2 missing heartbeat expires after 400ms and dead/departed/wrong-objective holders never count',()=>{
+  const relay={id:'relay_a',cut:false},o={pos:[0,0,0]},actor={health:100,pos:[0,0,1],yaw:0};
+  const holds=new Map([['a',{objectiveId:'relay_a',at:1000}],['b',{objectiveId:'relay_a',at:1000}],['gone',{objectiveId:'relay_a',at:1000}],['wrong',{objectiveId:'relay_b',at:1000}]]);
+  const actors=new Map([['a',actor],['b',{...actor,health:0}],['wrong',actor]]);
+  assert.equal(C.countCutters(holds,actors,o,relay,1400),1);assert.equal(C.countCutters(holds,actors,o,relay,1401),0);
+});

@@ -17,12 +17,15 @@
   function advanceRelay(relay,cutters,dt) {
     if(relay.cut)return {...relay,cutters:0};
     const t=Math.max(0,Math.min(1,relay.t+dt*(cutters?Math.min(2.5,1+.5*(cutters-1))/2.4:-1.6)));
-    return {...relay,t,cut:t>=1,cutters:t>=1?0:cutters};
+    return {...relay,t,cutters:t>=1?0:cutters};
+  }
+  function countCutters(holds,actors,objective,relay,now) {
+    return [...holds.entries()].filter(([id,h])=>h.objectiveId===relay.id&&now-h.at<=400&&validInteraction(actors.get(id),objective,relay)).length;
   }
   function commitRelay(flow,id) {
     const relay=flow.relays.find(r=>r.id===id);
-    if(!relay||!relay.cut||flow.cut>=flow.relays.filter(r=>r.cut).length)return false;
-    flow.cut++;flow.allCut=flow.cut===flow.total;flow.extraction.open=flow.allCut;
+    if(!relay||relay.cut||relay.t<1)return false;
+    relay.cut=true;relay.cutters=0;flow.cut++;flow.allCut=flow.cut===flow.total;flow.extraction.open=flow.allCut;
     if(flow.allCut)flow.phase='extract';
     return true;
   }
@@ -69,7 +72,12 @@
     const rating=(time<270?2:time<400?1:0)+(accuracy>=.5?2:accuracy>=.3?1:0)+(totals.respawns===0?1:0);
     return {time,...totals,accuracy,rating};
   }
-  const api={createFlow,shortName,objectiveText,validInteraction,advanceRelay,commitRelay,RULES,multiplier,maxAlive,scaled,waveQueue,dueSpawn,queueAttempt,pursuitStep,spawnScore,summarize};
+  function extractionStep(previous,actors,extraction,dt) {
+    const live=actors.filter(a=>a.health>0),center=array(extraction.pos),radius=extraction.radius||2.5;
+    const inZone=live.filter(a=>{const p=array(a.pos);return Math.hypot(p[0]-center[0],p[2]-center[2])<radius&&Math.abs(p[1]-center[1])<3.5;}).length;
+    return {open:true,inZone,needed:live.length,hold:live.length>0&&inZone===live.length?Math.min(1,previous.hold+dt/1.5):0};
+  }
+  const api={createFlow,shortName,objectiveText,validInteraction,advanceRelay,countCutters,commitRelay,RULES,multiplier,maxAlive,scaled,waveQueue,dueSpawn,queueAttempt,pursuitStep,spawnScore,summarize,extractionStep};
   if(typeof window==='undefined'){module.exports=api;return;}
   function create(ctx) {
     const {G}=ctx;
@@ -144,9 +152,9 @@
         for(let i=0;i<state.relays.length;i++) {
           const relay=state.relays[i];if(relay.cut)continue;
           const objective=G.level.objectives.find(o=>o.id===relay.id);
-          const cutters=[...holds.entries()].filter(([id,h])=>h.objectiveId===relay.id&&Date.now()-h.at<=400&&validInteraction(ctx.actors.get(id),objective,relay)).length;
+          const cutters=countCutters(holds,ctx.actors,objective,relay,Date.now());
           state.relays[i]=advanceRelay(relay,cutters,dt);
-          if(state.relays[i].cut&&commitRelay(state,relay.id)) {
+          if(state.relays[i].t>=1&&commitRelay(state,relay.id)) {
             ctx.emit({kind:'objectiveDone',objectiveId:relay.id,index:state.cut,total:state.total});
             ctx.emit({kind:'radio',key:state.allCut?'all':state.cut===1?'cut1':'cut2'});
             startWave();
@@ -154,6 +162,8 @@
           }
         }
         enemiesTick(dt);
+        if(state.allCut){state.extraction=extractionStep(state.extraction,[...ctx.actors.values()],G.level.extraction,dt);
+          if(state.extraction.hold>=1){ctx.emit({kind:'radio',key:'done'});finish('complete');}}
         apply(state);
       },apply,
       snapshot:()=>state&&JSON.parse(JSON.stringify(state)),
@@ -175,7 +185,8 @@
         if(holding&&holding!==next)ctx.send({type:'interact',seq:++seq,objectiveId:holding,active:false});
         if(next&&(next!==holding||now-lastHeartbeat>=200)){ctx.send({type:'interact',seq:++seq,objectiveId:next,active:true});lastHeartbeat=now;}
         holding=next;
-        G.hud.setPrompt(relay?`切断中继 ${shortName(relay.id,state.relays.indexOf(relay))}${relay.cutters>1?` · ${relay.cutters}人协作`:''}`:null,relay?.t||0);
+        G.hud.setPrompt(state.phase==='extract'?`等待队友进入撤离区（${state.extraction.inZone}/${state.extraction.needed}）`:
+          relay?`切断中继 ${shortName(relay.id,state.relays.indexOf(relay))}${relay.cutters>1?` · ${relay.cutters}人协作`:''}`:null,state.phase==='extract'?state.extraction.hold:relay?.t||0);
       },
       detach(){enabled=false;state=null;holds.clear();holding=null;G.hud.setPrompt(null);},destroy(){}
     };
