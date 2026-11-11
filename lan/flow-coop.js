@@ -34,12 +34,83 @@
     all:'三处中继全部断开！撤离艇在码头南端的舷梯旁，快撤！',
     low:'伤势严重！找掩体躲避，稍作恢复。',done:'几猫队员已登船，港区封锁解除。干得漂亮！'
   });
-  const api={createFlow,shortName,objectiveText,validInteraction,advanceRelay,commitRelay};
+  const RULES=Object.freeze({patrol:{gull:2,hound:1},waves:[{gull:3,hound:1},{gull:3,hound:2},{gull:4,hound:3}],stagger:.85,
+    firstSpawn:1.6,spawnFar:18,pursuitEvery:7,pursuitMinAlive:4,pursuitExtra:5});
+  const multiplier=n=>Math.min(3,1+.5*(Math.max(1,n)-1));
+  const maxAlive=n=>Math.min(18,9+2*(Math.max(1,n)-1));
+  const scaled=(counts,n)=>({gull:Math.min(10,Math.ceil(counts.gull*multiplier(n))),hound:Math.min(8,Math.ceil(counts.hound*multiplier(n)))});
+  function waveQueue(counts,time) {
+    const types=Array(counts.gull).fill('gull');
+    for(let i=0;i<counts.hound;i++)types.splice(Math.min(types.length,1+i*2),0,'hound');
+    return types.map((type,i)=>({type,at:time+RULES.firstSpawn+i*RULES.stagger,tries:0}));
+  }
+  function dueSpawn(queue,time,alive,limit) {
+    const index=queue.findIndex(item=>item.at<=time);
+    return index<0?null:{index,blocked:alive>=limit};
+  }
+  function queueAttempt(queue,index,success,time,blocked=false) {
+    return queue.flatMap((item,i)=>i!==index?[{...item}]:blocked?[{...item,at:time+1}]:success||item.tries+1>=6?[]:[{...item,tries:item.tries+1,at:time+1.5}]);
+  }
+  function pursuitStep(timer,left,dt,queueLength,alive) {
+    timer-=dt;
+    if(timer>0)return {timer,left,add:false,alert:false};
+    if(left>0&&!queueLength&&alive<RULES.pursuitMinAlive)return {timer:RULES.pursuitEvery,left:left-1,add:true,alert:true};
+    return {timer:4,left,add:false,alert:true};
+  }
+  function spawnScore(point,players,visible,recent,time,minDist=RULES.spawnFar,jitter=0) {
+    const live=players.filter(a=>a.health>0),p=array(point);
+    const distance=live.length?Math.min(...live.map(a=>Math.hypot(p[0]-array(a.pos)[0],p[2]-array(a.pos)[2]))):100;
+    return jitter+(distance>=minDist?2+Math.min(1,(distance-minDist)/30)*.5:-(minDist-distance)/4)+
+      (live.every(a=>!visible(p,array(a.pos)))?2.5:0)+(recent!==undefined&&time-recent<6?-3:0);
+  }
+  const api={createFlow,shortName,objectiveText,validInteraction,advanceRelay,commitRelay,RULES,multiplier,maxAlive,scaled,waveQueue,dueSpawn,queueAttempt,pursuitStep,spawnScore};
   if(typeof window==='undefined'){module.exports=api;return;}
   function create(ctx) {
     const {G}=ctx;
-    let enabled=false,state=null,seq=0,holding=null,lastHeartbeat=0;
+    let enabled=false,state=null,seq=0,holding=null,lastHeartbeat=0,queue=[],pursuitT=12,patrolPending=false,contactSaid=false;
     const holds=new Map();
+    const used=new Map(),T=G.THREE;
+    const livePlayers=()=>[...ctx.actors.values()].filter(a=>a.health>0);
+    function selectSpawn(type,minDist=RULES.spawnFar) {
+      const candidates=G.level.enemySpawns.filter(p=>p.type===(type==='gull'?'air':'ground'));
+      let chosen=null,score=-Infinity;
+      const visible=(p,a)=>G.physics.lineOfSight(new T.Vector3(...p).add(new T.Vector3(0,type==='gull'?0:1,0)),new T.Vector3(...a).add(new T.Vector3(0,1.4,0)));
+      for(const candidate of candidates){const value=spawnScore(candidate.pos,livePlayers(),visible,used.get(candidate),state.time,minDist,G.rng()*1.5);if(value>score){score=value;chosen=candidate;}}
+      if(!chosen)return null;
+      used.set(chosen,state.time);const point=chosen.pos.clone(),dx=(G.rng()-.5)*2.4,dz=(G.rng()-.5)*2.4;
+      if(type==='gull'||G.physics.nav.isWalkable(point.x+dx,point.z+dz)){point.x+=dx;point.z+=dz;}
+      if(type==='gull'&&point.y<2.5)point.y=6+G.rng()*3;
+      return point;
+    }
+    function spawn(type,pos,patrol=false) {
+      if(!pos||ctx.aliveEnemies().length>=maxAlive(ctx.actors.size))return null;
+      return G.enemies.spawn(type,pos,{state:patrol?'patrol':'alert',target:livePlayers()[0]?.pos||G.player.pos});
+    }
+    function startWave() {
+      const items=waveQueue(scaled(RULES.waves[Math.min(state.cut-1,2)],ctx.actors.size),state.time);
+      let center=new T.Vector3(),count=0;
+      for(const item of items){const pos=selectSpawn(item.type);if(pos){item.pos=array(pos);center.add(pos);count++;}queue.push(item);}
+      state.wave++;state.waveHot=30;
+      if(count)ctx.emit({kind:'waveWarning',centroid:array(center.multiplyScalar(1/count))});
+      if(state.allCut){state.pursuitLeft=Math.ceil(RULES.pursuitExtra*multiplier(ctx.actors.size));pursuitT=12;}
+    }
+    function enemiesTick(dt) {
+      if(patrolPending){patrolPending=false;const counts=scaled(RULES.patrol,ctx.actors.size);
+        for(const type of ['gull','hound'])for(let i=0;i<counts[type];i++)spawn(type,selectSpawn(type,32),true);
+        ctx.emit({kind:'radio',key:'intro'});
+      }
+      const alive=ctx.aliveEnemies().length,due=dueSpawn(queue,state.time,alive,maxAlive(ctx.actors.size));
+      if(due){const item=queue[due.index],pos=item.pos?new T.Vector3(...item.pos):selectSpawn(item.type);
+        const enemy=!due.blocked&&spawn(item.type,pos);queue=queueAttempt(queue,due.index,!!enemy,state.time,due.blocked);
+        if(enemy)for(const actor of livePlayers())ctx.alert(actor.pos,60);
+      }
+      if(state.allCut){const next=pursuitStep(pursuitT,state.pursuitLeft,dt,queue.length,alive);pursuitT=next.timer;state.pursuitLeft=next.left;
+        if(next.add)queue.push({type:G.rng()<.6?'gull':'hound',at:state.time+.5,tries:0});
+        if(next.alert)for(const actor of livePlayers())ctx.alert(actor.pos,90);
+      }
+      state.waveHot=Math.max(0,state.waveHot-dt);
+      if(!contactSaid&&ctx.aliveEnemies().some(e=>['alert','attack','chase'].includes(e.state))){contactSaid=true;ctx.emit({kind:'radio',key:'contact'});}
+    }
     function apply(flow) {
       if(!enabled||!flow||flow.kind!=='coop')return;
       state=JSON.parse(JSON.stringify(flow));
@@ -53,7 +124,8 @@
       G.hud.setMarkers(markers);
     }
     return {
-      initialize(data){enabled=data.mode==='coop';state=enabled?createFlow(G.level.objectives):null;seq=0;holding=null;holds.clear();if(enabled)apply(state);},
+      initialize(data){enabled=data.mode==='coop';state=enabled?createFlow(G.level.objectives):null;seq=0;holding=null;holds.clear();used.clear();queue=[];pursuitT=12;contactSaid=false;
+        patrolPending=enabled&&ctx.isHost();if(enabled){G.enemies.clear();apply(state);}},
       tick(dt){
         if(!enabled||!ctx.isHost()||['complete','failed'].includes(state.phase))return;
         state.time+=dt;
@@ -65,9 +137,11 @@
           if(state.relays[i].cut&&commitRelay(state,relay.id)) {
             ctx.emit({kind:'objectiveDone',objectiveId:relay.id,index:state.cut,total:state.total});
             ctx.emit({kind:'radio',key:state.allCut?'all':state.cut===1?'cut1':'cut2'});
+            startWave();
             if(state.allCut)ctx.emit({kind:'phase',phase:'extract'});
           }
         }
+        enemiesTick(dt);
         apply(state);
       },apply,
       snapshot:()=>state&&JSON.parse(JSON.stringify(state)),
@@ -76,7 +150,10 @@
         if(!enabled||message.type!=='interactIntent')return;
         if(message.active)holds.set(message.playerId,{objectiveId:message.objectiveId,at:Date.now()});else holds.delete(message.playerId);
       },
-      present(event){if(!enabled)return;if(event.kind==='radio'&&RADIO[event.key])G.hud.radio(RADIO[event.key],event.key==='all'?4.5:3.6);},
+      present(event){if(!enabled)return;if(event.kind==='radio'&&RADIO[event.key])G.hud.radio(RADIO[event.key],event.key==='all'?4.5:3.6);
+        if(event.kind==='waveWarning'){const d=event.centroid,dx=d[0]-G.player.pos.x,dz=d[2]-G.player.pos.z;
+          const bearing=(Math.atan2(dx,-dz)*180/Math.PI+360)%360;
+          G.hud.warn('发现敌情 · '+['北方','东北方','东方','东南方','南方','西南方','西方','西北方'][Math.round(bearing/45)%8],3.4);}},
       render(now){
         if(!enabled||!state)return;
         const actor={health:G.player.alive?G.player.health:0,pos:G.player.pos,yaw:G.player.yaw};

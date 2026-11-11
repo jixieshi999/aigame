@@ -51,3 +51,24 @@ test('D2 single/multiple cutters, capped speed, release decay and completion are
   assert.ok(C.commitRelay(f,'relay_a'));assert.equal(f.phase,'extract');assert.equal(C.commitRelay(f,'relay_a'),false);
   assert.ok(P.cleanFlow(f));assert.equal(C.advanceRelay(f.relays[0],0,10).t,1);
 });
+test('D3 population scaling at 1/2/4/20 respects type pools and total limits',()=>{
+  assert.deepEqual([1,2,4,20].map(C.multiplier),[1,1.5,2.5,3]);
+  assert.deepEqual([1,2,4,20].map(C.maxAlive),[9,11,15,18]);
+  assert.deepEqual([1,2,4,20].map(n=>C.scaled(C.RULES.waves[2],n)),[{gull:4,hound:3},{gull:6,hound:5},{gull:10,hound:8},{gull:10,hound:8}]);
+  assert.deepEqual(C.scaled(C.RULES.patrol,20),{gull:6,hound:3});
+});
+test('D3 staggered interleaving, one-at-a-time dequeue, capacity delay and six retries',()=>{
+  let q=C.waveQueue({gull:3,hound:2},10);assert.deepEqual(q.map(i=>i.type),['gull','hound','gull','hound','gull']);
+  assert.equal(C.dueSpawn(q,11.5,0,9),null);assert.deepEqual(C.dueSpawn(q,11.6,9,9),{index:0,blocked:true});
+  q=C.queueAttempt(q,0,false,11.6,true);assert.equal(q[0].at,12.6);
+  q=C.queueAttempt(q,0,true,20);assert.equal(q.length,4);
+  let one=[{type:'gull',at:0,tries:0}];for(let i=1;i<=6;i++){one=C.queueAttempt(one,0,false,i*2);assert.equal(one.length,i===6?0:1);}
+});
+test('D3 pursuit waits for empty queue and low alive count; spawn score considers every live player',()=>{
+  assert.equal(C.pursuitStep(0,5,.1,1,0).add,false);assert.equal(C.pursuitStep(0,5,.1,0,4).add,false);
+  assert.deepEqual(C.pursuitStep(0,5,.1,0,3),{timer:7,left:4,add:true,alert:true});
+  assert.equal(C.pursuitStep(0,0,.1,0,0).add,false);
+  const players=[{health:100,pos:[0,0,0]},{health:100,pos:[40,0,0]}];
+  assert.ok(C.spawnScore([20,0,0],players,()=>false,undefined,0)>C.spawnScore([39,0,0],players,()=>false,undefined,0));
+  assert.ok(C.spawnScore([20,0,0],players,()=>false,undefined,0)>C.spawnScore([20,0,0],players,()=>true,0,1));
+});
