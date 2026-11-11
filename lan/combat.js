@@ -312,6 +312,7 @@
     function intent(message) {
       if (!isHost()||!running()) return;
       localPose();const actor=actors.get(message.playerId); if (!actor) return;
+      if(message.type==='interactIntent'){coop.intent(message);return;}
       finishReload(actor,Date.now());
       if (message.type==='reloadIntent') {
         if (message.seq<=actor.lastReload) return;actor.lastReload=message.seq;
