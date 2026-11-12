@@ -91,13 +91,209 @@
                 </LinearLayout>
 
                 <TextView
-                    android:id="@+id/tvNetworkInfo"
+                    android:id="@+id/tvNodeVersion"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:text="网络地址：192.168.43.1:8787 (热点模式)"
+                    android:layout_marginTop="4dp"
+                    android:text="运行核心：Node.js v18.20.4 (移动剪裁版)"
                     android:textColor="@color/steel_muted"
-                    android:textSize="13sp" />
+                    android:textSize="12sp" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="6dp">
+
+                    <TextView
+                        android:id="@+id/tvNetworkInfo"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="网络地址：正在检测…"
+                        android:textColor="@color/steel_muted"
+                        android:textSize="13sp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnSwitchNetwork"
+                        style="@style/Widget.MaterialComponents.Button.TextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="切换接口"
+                        android:textColor="@color/signal_amber"
+                        android:textSize="12sp"
+                        android:visibility="gone" />
+                </LinearLayout>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnBatteryOpt"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/btn_battery_opt"
+                    android:textColor="@color/signal_amber"
+                    android:textSize="12sp"
+                    app:strokeColor="@color/signal_amber"
+                    android:visibility="gone" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Room Settings Card (M1 房间设置) -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/cardRoomSettings"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            app:cardBackgroundColor="@color/card_dark"
+            app:strokeColor="@color/card_border"
+            app:strokeWidth="1dp"
+            app:cardCornerRadius="12dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="14dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/room_config_title"
+                    android:textColor="@color/signal_amber"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <!-- Room Name & Random -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="10dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/room_name_label"
+                        android:textColor="@color/bone_white"
+                        android:textSize="13sp" />
+
+                    <EditText
+                        android:id="@+id/etRoomName"
+                        android:layout_width="0dp"
+                        android:layout_height="38dp"
+                        android:layout_weight="1"
+                        android:layout_marginStart="8dp"
+                        android:background="@color/input_bg"
+                        android:paddingHorizontal="10dp"
+                        android:singleLine="true"
+                        android:maxLength="32"
+                        android:textColor="@color/bone_white"
+                        android:textSize="13sp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnRandomRoom"
+                        style="@style/Widget.MaterialComponents.Button.TextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/btn_random_room"
+                        android:textColor="@color/signal_amber"
+                        android:textSize="12sp" />
+                </LinearLayout>
+
+                <!-- Mode Selection -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="8dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/room_mode_label"
+                        android:textColor="@color/bone_white"
+                        android:textSize="13sp" />
+
+                    <RadioGroup
+                        android:id="@+id/rgMode"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginStart="8dp">
+
+                        <RadioButton
+                            android:id="@+id/rbModeCoop"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/mode_coop"
+                            android:textColor="@color/bone_white"
+                            android:textSize="13sp"
+                            android:checked="true" />
+
+                        <RadioButton
+                            android:id="@+id/rbModePvp"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="12dp"
+                            android:text="@string/mode_pvp"
+                            android:textColor="@color/bone_white"
+                            android:textSize="13sp" />
+                    </RadioGroup>
+                </LinearLayout>
+
+                <!-- Seeds -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="8dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/seed_label"
+                        android:textColor="@color/bone_white"
+                        android:textSize="13sp" />
+
+                    <EditText
+                        android:id="@+id/etSeed"
+                        android:layout_width="0dp"
+                        android:layout_height="38dp"
+                        android:layout_weight="1"
+                        android:layout_marginStart="8dp"
+                        android:background="@color/input_bg"
+                        android:paddingHorizontal="8dp"
+                        android:inputType="numberSigned"
+                        android:hint="seed"
+                        android:textColorHint="@color/steel_muted"
+                        android:textColor="@color/bone_white"
+                        android:textSize="13sp" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="/"
+                        android:textColor="@color/steel_muted"
+                        android:layout_marginHorizontal="6dp" />
+
+                    <EditText
+                        android:id="@+id/etEseed"
+                        android:layout_width="0dp"
+                        android:layout_height="38dp"
+                        android:layout_weight="1"
+                        android:background="@color/input_bg"
+                        android:paddingHorizontal="8dp"
+                        android:inputType="numberSigned"
+                        android:hint="eseed"
+                        android:textColorHint="@color/steel_muted"
+                        android:textColor="@color/bone_white"
+                        android:textSize="13sp" />
+                </LinearLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -120,6 +316,7 @@
                 android:padding="16dp">
 
                 <TextView
+                    android:id="@+id/tvScanHint"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/scan_hint"
@@ -127,11 +324,15 @@
                     android:textSize="13sp"
                     android:gravity="center" />
 
-                <!-- QR Frame -->
+                <!-- QR Frame (Clickable for zoom) -->
                 <com.google.android.material.card.MaterialCardView
-                    android:layout_width="230dp"
-                    android:layout_height="230dp"
+                    android:id="@+id/cardQrContainer"
+                    android:layout_width="220dp"
+                    android:layout_height="220dp"
                     android:layout_marginTop="12dp"
+                    android:foreground="?android:attr/selectableItemBackground"
+                    android:clickable="true"
+                    android:focusable="true"
                     app:cardBackgroundColor="@color/white"
                     app:cardCornerRadius="8dp"
                     app:strokeWidth="0dp">
@@ -145,22 +346,31 @@
                 </com.google.android.material.card.MaterialCardView>
 
                 <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="@string/qr_zoom_hint"
+                    android:textColor="@color/steel_muted"
+                    android:textSize="11sp" />
+
+                <TextView
                     android:id="@+id/tvJoinUrl"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
+                    android:layout_marginTop="8dp"
                     android:text="http://192.168.43.1:8787/..."
                     android:textColor="@color/signal_amber"
                     android:textSize="12sp"
                     android:textIsSelectable="true"
-                    android:maxLines="2" />
+                    android:maxLines="3"
+                    android:gravity="center" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnCopyUrl"
                     style="@style/Widget.MaterialComponents.Button.TextButton"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
+                    android:layout_marginTop="2dp"
                     android:text="@string/copy_link"
                     android:textColor="@color/signal_amber"
                     android:textSize="12sp" />
@@ -183,7 +393,7 @@
                 android:orientation="vertical"
                 android:padding="16dp">
 
-                <!-- Mode 2 Switch -->
+                <!-- Mode 2 Switch (本机兼任房主 - 默认关闭) -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -211,13 +421,24 @@
                             android:text="@string/mode_dedicated_host_desc"
                             android:textColor="@color/steel_muted"
                             android:textSize="12sp" />
+
+                        <TextView
+                            android:id="@+id/tvHostWarning"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:text="@string/mode_dedicated_host_warning"
+                            android:textColor="@color/warning_orange"
+                            android:textSize="12sp"
+                            android:textStyle="bold"
+                            android:visibility="gone" />
                     </LinearLayout>
 
                     <com.google.android.material.switchmaterial.SwitchMaterial
                         android:id="@+id/switchDedicatedHost"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:checked="true"
+                        android:checked="false"
                         app:thumbTint="@color/signal_amber"
                         app:trackTint="@color/card_border" />
                 </LinearLayout>
@@ -260,6 +481,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
+            android:visibility="gone"
             app:cardBackgroundColor="@color/card_dark"
             app:strokeColor="@color/card_border"
             app:strokeWidth="1dp"

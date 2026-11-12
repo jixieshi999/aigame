@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.net.wifi.WifiManager
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
@@ -26,6 +27,7 @@ class NodeServerService : Service() {
 
     private val binder = LocalBinder()
     private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
     private var isNodeRunning = false
     private var logListener: LogListener? = null
 
@@ -57,6 +59,7 @@ class NodeServerService : Service() {
         super.onCreate()
         createNotificationChannel()
         acquireWakeLock()
+        acquireWifiLock()
 
         // Register the log callback with native C++ bridge
         registerLogCallback(object : Any() {
@@ -103,6 +106,21 @@ class NodeServerService : Service() {
         }
     }
 
+    private fun acquireWifiLock() {
+        val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+        wifiLock = wm?.createWifiLock(
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+            } else {
+                WifiManager.WIFI_MODE_FULL_HIGH_PERF
+            },
+            "JiMao:NodeServerWifiLock"
+        )?.apply {
+            setReferenceCounted(false)
+            acquire()
+        }
+    }
+
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
@@ -139,6 +157,9 @@ class NodeServerService : Service() {
         super.onDestroy()
         registerLogCallback(null)
         wakeLock?.let {
+            if (it.isHeld) it.release()
+        }
+        wifiLock?.let {
             if (it.isHeld) it.release()
         }
     }

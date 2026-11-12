@@ -4,14 +4,24 @@
     <string name="server_title">《几猫》局域网联机主机</string>
     <string name="server_subtitle">便携式游戏服务器 · 扫码即玩</string>
     <string name="status_stopped">服务状态：已停止</string>
-    <string name="status_running">服务状态：运行中 (端口 8787)</string>
+    <string name="status_running">服务状态：运行中</string>
     <string name="status_starting">服务正在启动…</string>
     <string name="btn_start">启动服务</string>
     <string name="btn_stop">停止服务</string>
-    <string name="mode_dedicated_host">模式 2：独立主机 (Dedicated Host)</string>
-    <string name="mode_dedicated_host_desc">本手机作为权威房主计算敌人 AI，扫码玩家手机更流畅更省电，且提供实时观战监控</string>
+    <string name="mode_dedicated_host">本机兼任房主（实验性）</string>
+    <string name="mode_dedicated_host_desc">默认关闭。建议由参与游戏的最高性能手机进入房间担任房主。开启后本机将运行游戏 3D 渲染与全量敌人 AI，发热与耗电较高。</string>
+    <string name="mode_dedicated_host_warning">⚠️ 本机正在运行游戏 AI (高负载)</string>
     <string name="keep_screen_on">保持屏幕常亮</string>
     <string name="scan_hint">其他手机连入同 Wi-Fi 或本机热点，扫码立即加入：</string>
     <string name="copy_link">复制链接</string>
     <string name="spectator_title">实机战况监控窗</string>
+    <string name="room_config_title">🎮 房间参数配置</string>
+    <string name="room_name_label">房间名：</string>
+    <string name="room_mode_label">模式：</string>
+    <string name="mode_coop">合作 (coop)</string>
+    <string name="mode_pvp">对抗 (pvp)</string>
+    <string name="seed_label">地图种子：</string>
+    <string name="btn_random_room">随机房间</string>
+    <string name="btn_battery_opt">⚡ 加入电池白名单 (防后台息屏被杀)</string>
+    <string name="qr_zoom_hint">🔍 点击二维码放大全屏显示</string>
 </resources>

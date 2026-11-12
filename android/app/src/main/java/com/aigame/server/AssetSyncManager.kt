@@ -9,9 +9,8 @@ object AssetSyncManager {
 
     fun syncNodeProject(context: Context): File {
         val targetDir = File(context.filesDir, "nodejs-project")
-        if (!targetDir.exists()) {
-            targetDir.mkdirs()
-        }
+        targetDir.deleteRecursively()
+        targetDir.mkdirs()
         copyAssetFolder(context, "nodejs-project", targetDir)
         return targetDir
     }
