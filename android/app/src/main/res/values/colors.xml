@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg_dark">#0B0D0F</color>
+    <color name="card_dark">#14181B</color>
+    <color name="card_border">#2A3238</color>
+    <color name="signal_amber">#FFB347</color>
+    <color name="signal_hot">#FFC977</color>
+    <color name="bone_white">#E8E4DA</color>
+    <color name="steel_muted">#8D9AA3</color>
+    <color name="alarm_red">#FF5A40</color>
+    <color name="online_green">#2ECC71</color>
+    <color name="white">#FFFFFF</color>
+    <color name="black">#000000</color>
+</resources>

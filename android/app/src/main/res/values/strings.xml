@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">几猫主机</string>
+    <string name="server_title">《几猫》局域网联机主机</string>
+    <string name="server_subtitle">便携式游戏服务器 · 扫码即玩</string>
+    <string name="status_stopped">服务状态：已停止</string>
+    <string name="status_running">服务状态：运行中 (端口 8787)</string>
+    <string name="status_starting">服务正在启动…</string>
+    <string name="btn_start">启动服务</string>
+    <string name="btn_stop">停止服务</string>
+    <string name="mode_dedicated_host">模式 2：独立主机 (Dedicated Host)</string>
+    <string name="mode_dedicated_host_desc">本手机作为权威房主计算敌人 AI，扫码玩家手机更流畅更省电，且提供实时观战监控</string>
+    <string name="keep_screen_on">保持屏幕常亮</string>
+    <string name="scan_hint">其他手机连入同 Wi-Fi 或本机热点，扫码立即加入：</string>
+    <string name="copy_link">复制链接</string>
+    <string name="spectator_title">实机战况监控窗</string>
+</resources>

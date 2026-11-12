@@ -1,0 +1,24 @@
+*.iml
+.gradle
+/local.properties
+local.properties
+/.idea
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+app/build
+app/.cxx
+*.apk
+*.aab
+
+# 构建产物 assets（由 Gradle 任务构建期自动同步与校验）
+app/src/main/assets/nodejs-project
+
+# 忽略根目录下非文档类临时截图
+*.png
+!docs/*.png
+
+# 预编译底层 C++ 动态库（按约束5：避免将数十MB二进制提交进代码库，文档说明获取方式）
+app/src/main/jniLibs/**/*.so
