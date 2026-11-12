@@ -24,4 +24,19 @@
     <string name="btn_random_room">随机房间</string>
     <string name="btn_battery_opt">⚡ 加入电池白名单 (防后台息屏被杀)</string>
     <string name="qr_zoom_hint">🔍 点击二维码放大全屏显示</string>
+
+    <!-- M2 LocalOnlyHotspot 热点相关 -->
+    <string name="hotspot_title">📡 免路由器临时热点 (M2)</string>
+    <string name="hotspot_desc">野外或无路由器时，一键启动系统专属临时热点，其它手机扫码连接即可加入对战。</string>
+    <string name="btn_start_hotspot">启动临时热点</string>
+    <string name="btn_stop_hotspot">关闭临时热点</string>
+    <string name="btn_system_hotspot">系统热点设置</string>
+    <string name="hotspot_status_idle">热点状态：未启动</string>
+    <string name="hotspot_status_starting">热点状态：正在启动…</string>
+    <string name="hotspot_status_active">热点状态：已开启 · 扫码直连</string>
+    <string name="hotspot_guidance_unsupported">⚠️ 当前环境不支持自建热点（模拟器缺少无线网卡），建议连接 Wi-Fi 或在真机下拉通知栏手动开启系统【个人热点】。</string>
+    <string name="tab_game_qr">🎮 游戏加入码</string>
+    <string name="tab_wifi_qr">📶 热点连接码</string>
+    <string name="wifi_scan_hint">用其他手机自带相机扫码，即可免输密码直连本机专属热点：</string>
+    <string name="wifi_copy_creds">复制热点 SSID 与密码</string>
 </resources>

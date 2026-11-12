@@ -47,10 +47,10 @@ object NetworkUtils {
 
     /**
      * 枚举所有当前可用且已启用的 IPv4 候选接口。
-     * 排序规则：具有默认路由的 Wi-Fi > 其它 Wi-Fi > 热点接口 > 有线以太网 > 其它。
-     * 若无任何可用网络，返回空列表（不回退猜测的 192.168.43.1）。
+     * 排序规则：若 preferHotspot 为 true 则优先热点接口；
+     * 否则优先排序：具有默认路由的 Wi-Fi > 其它 Wi-Fi > 热点接口 > 有线以太网 > 其它。
      */
-    fun getAvailableIpCandidates(context: Context): List<IpCandidate> {
+    fun getAvailableIpCandidates(context: Context, preferHotspot: Boolean = false): List<IpCandidate> {
         val candidates = mutableListOf<IpCandidate>()
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
         val activeNetwork = cm?.activeNetwork
@@ -73,7 +73,8 @@ object NetworkUtils {
                         val isDefault = activeIps.contains(hostAddress)
 
                         val type = when {
-                            name.contains("ap") || name.contains("softap") || name.contains("swlan") || hostAddress.startsWith("192.168.43.") -> InterfaceType.HOTSPOT
+                            name.contains("ap") || name.contains("softap") || name.contains("swlan") ||
+                                hostAddress.startsWith("192.168.43.") || hostAddress.startsWith("192.168.49.") -> InterfaceType.HOTSPOT
                             name.contains("wlan") -> InterfaceType.WIFI
                             name.contains("eth") -> InterfaceType.ETHERNET
                             else -> InterfaceType.OTHER
@@ -105,14 +106,22 @@ object NetworkUtils {
             e.printStackTrace()
         }
 
-        // 优先级排序：默认路由 Wi-Fi > Wi-Fi > 热点 > 以太网 > 其它
-        return candidates.sortedWith(
-            compareByDescending<IpCandidate> { it.isDefaultRoute && it.type == InterfaceType.WIFI }
-                .thenByDescending { it.type == InterfaceType.WIFI }
-                .thenByDescending { it.type == InterfaceType.HOTSPOT }
-                .thenByDescending { it.isDefaultRoute }
-                .thenBy { it.interfaceName }
-        )
+        return if (preferHotspot) {
+            candidates.sortedWith(
+                compareByDescending<IpCandidate> { it.type == InterfaceType.HOTSPOT }
+                    .thenByDescending { it.isDefaultRoute }
+                    .thenByDescending { it.type == InterfaceType.WIFI }
+                    .thenBy { it.interfaceName }
+            )
+        } else {
+            candidates.sortedWith(
+                compareByDescending<IpCandidate> { it.isDefaultRoute && it.type == InterfaceType.WIFI }
+                    .thenByDescending { it.type == InterfaceType.WIFI }
+                    .thenByDescending { it.type == InterfaceType.HOTSPOT }
+                    .thenByDescending { it.isDefaultRoute }
+                    .thenBy { it.interfaceName }
+            )
+        }
     }
 
     /**
