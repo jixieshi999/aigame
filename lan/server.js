@@ -13,7 +13,12 @@ const VERSION = 3;
 const EXPECTED_HASH = '9e55b5200b088adaf8e1152da04efc0d3b25e236e6baf2dee96f81e23e084966';
 const MAX_MESSAGE = 65536;
 const MAX_PLAYERS = 20;
-const utf8 = new TextDecoder('utf-8', { fatal: true });
+let utf8;
+try {
+  utf8 = new TextDecoder('utf-8', { fatal: true });
+} catch {
+  utf8 = new TextDecoder('utf-8');
+}
 
 function frame(opcode, payload = Buffer.alloc(0)) {
   payload = Buffer.isBuffer(payload) ? payload : Buffer.from(payload);
@@ -50,8 +55,14 @@ function validMap(map) {
 function cleanMap(map) {
   return { schema: map.schema, boxes: map.boxes, nav: map.nav, boxCount: map.boxCount, navWidth: map.navWidth, navHeight: map.navHeight };
 }
+let cleanNameRegex;
+try {
+  cleanNameRegex = new RegExp('[\\p{Cc}\\p{Cf}\\p{Zl}\\p{Zp}]', 'gu');
+} catch {
+  cleanNameRegex = /[\x00-\x1F\x7F-\x9F\u2000-\u200F\u2028-\u202F\u205F-\u206F\uFEFF]/g;
+}
 function cleanName(value) {
-  return Array.from(value.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, '').trim()).slice(0, 20).join('') || '无名猫';
+  return Array.from(value.replace(cleanNameRegex, '').trim()).slice(0, 20).join('') || '无名猫';
 }
 function sameMap(a, b) {
   return ['schema', 'boxes', 'nav', 'boxCount', 'navWidth', 'navHeight'].every(key => a[key] === b[key]);
@@ -432,6 +443,12 @@ function createLanServer(options = {}) {
 }
 
 if (require.main === module) {
+  process.on('uncaughtException', err => {
+    console.error(`[NodeServer] 未捕获异常: ${err && (err.stack || err.message || err)}`);
+  });
+  process.on('unhandledRejection', reason => {
+    console.error(`[NodeServer] 未处理Promise拒绝: ${reason}`);
+  });
   const port = Number(process.argv[2] ?? 8787);
   if (!Number.isInteger(port) || port < 1 || port > 65535) { console.error('端口需为1到65535的整数'); process.exitCode = 1; }
   else {
@@ -439,9 +456,21 @@ if (require.main === module) {
     app.server.on('error', error => { console.error(`启动失败：${error.message}`); process.exitCode = 1; });
     app.server.listen(port, '0.0.0.0', () => {
       console.log(`几猫局域网 A/B/C/D 阶段 · 构建 ${app.build} · 协议 ${VERSION}`);
+      console.log(`Node 运行时：${process.version}`);
       console.log(`本机：http://localhost:${port}/`);
-      for (const addresses of Object.values(os.networkInterfaces())) for (const address of addresses || []) {
-        if (address.family === 'IPv4' && !address.internal) console.log(`局域网：http://${address.address}:${port}/`);
+      let printedLan = false;
+      try {
+        for (const addresses of Object.values(os.networkInterfaces() || {})) for (const address of addresses || []) {
+          if (address.family === 'IPv4' && !address.internal) {
+            console.log(`局域网：http://${address.address}:${port}/`);
+            printedLan = true;
+          }
+        }
+      } catch (error) {
+        console.warn(`读取网络接口失败：${error.message}`);
+      }
+      if (!printedLan && process.env.LAN_IP) {
+        console.log(`局域网：http://${process.env.LAN_IP}:${port}/`);
       }
     });
     for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => app.stop().catch(error => console.error(error.message)));
