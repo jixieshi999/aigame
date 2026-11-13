@@ -1,7 +1,24 @@
 'use strict';
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const S=require('../flow-shared'),C=require('../flow-coop'),P=require('../combat-protocol');
+const S=require('../flow-shared'),C=require('../flow-coop'),P=require('../combat-protocol'),V=require('../flow-pvp');
+test('E PvP hit, friendly-fire and score rules stay deterministic',()=>{
+  const flow=V.createFlow({scoreLimit:2});
+  assert.equal(V.hitPart(1.5,0,false),'head');assert.equal(V.damageFor('head'),38.5);assert.equal(V.damageFor('body'),22);
+  assert.equal(V.canHit({id:'a',team:0},{id:'b',team:0,health:100},{friendlyFire:false}),false);
+  assert.equal(V.canHit({id:'a',team:0},{id:'b',team:1,health:100},{friendlyFire:false}),true);
+  const scored=V.recordKill(flow,0,1,false);assert.deepEqual(scored.scores,[1,0]);
+  const won=V.recordKill(scored,0,1,false);assert.equal(won.phase,'ended');assert.equal(won.winner,0);
+  assert.deepEqual(V.recordKill(flow,0,0,true).scores,[0,0]);
+  assert.equal(V.tickFlow({...flow,time:599.9},.2).winner,-1);
+});
+test('E PvP flow and events are allowlisted',()=>{
+  const f=V.createFlow({scoreLimit:5}),clean=P.cleanFlow(f);assert.ok(clean);assert.equal(clean.kind,'pvp');
+  assert.equal(P.cleanFlow({...f,options:{...f.options,scoreLimit:999}}),null);
+  const ids=new Set(['a','b']);assert.deepEqual(P.cleanEvent({kind:'playerKill',killerId:'a',victimId:'b',part:'head',cause:'shot'},ids).part,'head');
+  assert.equal(P.cleanEvent({kind:'playerKill',killerId:'a',victimId:'b',part:'head',cause:'fall'},ids),null);
+  assert.equal(P.cleanEvent({kind:'shotResult',playerId:'a',shotSeq:1,accepted:true,hit:true,killed:false,enemyId:null,victimId:'b',part:'body',point:[0,0,0],normal:[0,1,0]},ids).victimId,'b');
+});
 test('D1 deterministic pools retain 24 spaced walkable covered slots per team',()=>{
   const walk=(x,z)=>Math.abs(x)<50&&Math.abs(z)<50,visible=()=>false;
   const pools=S.buildSpawnPools(walk,visible);assert.deepEqual(pools,S.buildSpawnPools(walk,visible));
@@ -54,8 +71,8 @@ test('D2 single/multiple cutters, capped speed, release decay and completion are
 test('D3 population scaling at 1/2/4/20 respects type pools and total limits',()=>{
   assert.deepEqual([1,2,4,20].map(C.multiplier),[1,1.5,2.5,3]);
   assert.deepEqual([1,2,4,20].map(C.maxAlive),[9,11,15,18]);
-  assert.deepEqual([1,2,4,20].map(n=>C.scaled(C.RULES.waves[2],n)),[{gull:4,hound:3},{gull:6,hound:5},{gull:10,hound:8},{gull:10,hound:8}]);
-  assert.deepEqual(C.scaled(C.RULES.patrol,20),{gull:6,hound:3});
+  assert.deepEqual([1,2,4,20].map(n=>C.scaled(C.RULES.waves[2],n)),[{gull:5,hound:4},{gull:8,hound:6},{gull:10,hound:8},{gull:10,hound:8}]);
+  assert.deepEqual(C.scaled(C.RULES.patrol,20),{gull:9,hound:6});
 });
 test('D3 staggered interleaving, one-at-a-time dequeue, capacity delay and six retries',()=>{
   let q=C.waveQueue({gull:3,hound:2},10);assert.deepEqual(q.map(i=>i.type),['gull','hound','gull','hound','gull']);

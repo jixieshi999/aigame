@@ -88,7 +88,8 @@ async function main() {
     assert.equal(actor(report.hostKill.b,report.hostKill.b.playerId).stats.kills,0);
     check('房主真实鼠标击杀猎犬后，两端同一enemyId均消失；房主仅记1次击杀');
 
-    await reset(a,b);const remoteTarget=await spawn(a,'hound',[-26,0,6]);
+    await reset(a,b);await b.evaluate(()=>{__G.player.pos.set(-30,0,6);__G.player.vel.set(0,0,0);});await b.waitForTimeout(250);
+    const remoteTarget=await spawn(a,'hound',[-26,0,6]);
     await aimFire(b,[-26,.6,6],1400);
     await b.waitForFunction(id=>!__LAN.snapshot().combat.enemies.some(e=>e.id===id),remoteTarget.id);
     await a.waitForFunction(id=>!__LAN.snapshot().combat.enemies.some(e=>e.id===id),remoteTarget.id);
@@ -105,7 +106,8 @@ async function main() {
     check('换弹请求由房主计时并补充弹药，弹匣与备弹守恒');
 
     // A low, close gull falls within blast range. A high gull carries the shot impulse ~4m away.
-    await reset(a,b);const falling=await spawn(a,'gull',[-31,.7,6]);
+    await reset(a,b);await a.evaluate(()=>{__G.player.pos.set(-32,0,6);__G.player.vel.set(0,0,0);});await b.evaluate(()=>{__G.player.pos.set(-30,0,6);__G.player.vel.set(0,0,0);});await a.waitForTimeout(250);
+    const falling=await spawn(a,'gull',[-31,.7,6]);await a.waitForTimeout(3200);
     await a.evaluate(()=>{const explode=__G.combat.explode;__G.combat.explode=function(pos,radius,amount,source){const center=__G.player.pos.clone().add(new __G.THREE.Vector3(0,1,0));window.__blastProbe={pos:pos.toArray(),radius,amount,source,center:center.toArray(),distance:pos.distanceTo(center),los:__G.physics.lineOfSight(pos,center)};return explode.apply(this,arguments);};});
     const beforeBlast={a:await snap(a),b:await snap(b)};
     await aimFire(a,[-31,.7,6],650);
@@ -147,7 +149,8 @@ async function main() {
     assert.ok(await b.evaluate(()=>__G.player.health)<100);
     check('飞鸥弹丸检查全体玩家并命中第二位玩家，伤害7且只结算一次；本机自行回血写入被权威状态覆盖');
 
-    const beforeRay=actor(await snap(b),bId).health;
+    await reset(a,b);await a.evaluate(()=>__G.enemies.clear());await b.evaluate(()=>{__G.player.pos.set(-30,0,6);__G.player.health=100;__G.player.vel.set(0,0,0);});await b.waitForTimeout(300);
+    await a.waitForTimeout(3200);const beforeRay=actor(await snap(b),bId).health;
     assert.equal(await a.evaluate(()=>__G.combat.enemyShot(new __G.THREE.Vector3(-30,1.1,3),new __G.THREE.Vector3(0,0,1),{damage:6,range:20})),true);
     await b.waitForFunction(({id,hp})=>__LAN.snapshot().combat.players.some(p=>p.playerId===id&&p.health<hp),{id:bId,hp:beforeRay});
     report.ray={before:beforeRay,a:await snap(a),b:await snap(b)};

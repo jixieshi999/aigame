@@ -75,7 +75,7 @@
     let lastTick=performance.now(), accumulator=0, snapshotAt=0, worldSeq=0, eventSeq=0, lastWorldSeq=-1, lastEventSeq=-1;
     let reloadSeq=0, hazardSeq=0, currentEnemy=null, currentAttacker=null, offset=null, latestWorld=null, replaying=false;
     let projectiles=[], boltCounter=0;
-    let mode='pvp',shared=null,coop=null;
+    let mode='pvp',shared=null,coop=null,pvp=null;
     const saturation=G.render.post?.saturation??1;
     const stats={ simulations:0, worldsSent:0, worldsReceived:0, acceptedShots:0, rejectedShots:0, damage:0,
       explosions:0, remoteExplosions:0, boltHits:0, disposed:0, identityLeaks:0 };
@@ -87,7 +87,7 @@
     const zAxis=new T.Vector3(0,0,1), temp=new T.Vector3();
     const isHost=()=>attached&&selfId===hostId;
     const running=()=>attached&&mapOk&&state!=='ended';
-    const fighting=()=>running()&&!coop?.terminal();
+    const fighting=()=>running()&&!coop?.terminal()&&!pvp?.terminal();
     function replace(object,key,fn) { const original=object[key]; object[key]=fn(original); removers.push(()=>{ object[key]=original; }); return original; }
     function warn(text) { onStatus(text); }
     function netEvent(event) { if (isHost()&&mapOk&&state!=='ended') send({type:'combatEvent',roundId,seq:++eventSeq,event}); }
@@ -97,7 +97,7 @@
         health:100, ammo:30,reserve:150,reloadUntil:0,ackShot:0,stats:{shots:0,hits:0,kills:0},
         lastDamage:now,lastPose:now,lastHazard:-1,lastReload:-1,fireTokens:3,fireAt:now,crouching:false,speed:0,
         nickname:info.nickname,team:info.team,deaths:0,respawns:0,respawnAt:null,invulnUntil:0,lastAttacker:null,spawnSlot:null,
-        needsSpawn:mode==='coop',yaw:info.pose?.yaw||0,ignorePoseUntil:0 };
+        needsSpawn:mode==='coop'||mode==='pvp',yaw:info.pose?.yaw||0,ignorePoseUntil:0 };
       actor.proxy={ pos:actor.pos, eye:actor.eye, vel:actor.vel, get alive(){return actor.health>0&&Date.now()-actor.lastPose<3000;},
         get health(){return actor.health;}, get crouching(){return actor.crouching;}, get speed(){return actor.speed;},
         damage(amount,from){damage(actor,amount,from);} };
@@ -144,14 +144,24 @@
       G.weapon.ammo=Math.max(0,data.ammo-pendingShots.size); G.weapon.reserve=data.reserve;
       Object.assign(G.combat.stats,data.stats);
     }
-    function damage(actor,amount,from) {
-      if (!isHost()||!fighting()||actor.health<=0||!(amount>0)) return;
-      const next=window.LanFlowShared.damageState(actor,amount,Date.now(),shared.options().respawnSec||10);
-      if(!next)return;
+    function damage(actor,amount,from,attacker=null) {
+      if (!isHost()||!fighting()||actor.health<=0||!(amount>0)) return null;
+      const respawnSec=mode==='pvp'?(pvp?.options().respawnSec||5):(shared.options().respawnSec||10);
+      const next=window.LanFlowShared.damageState(actor,amount,Date.now(),respawnSec);
+      if(!next)return null;
       const applied=actor.health-next.health;Object.assign(actor,next);actor.lastDamage=Date.now();stats.damage++;
       const source=from ? values(from) : values(actor.pos);
       netEvent({kind:'hurt',playerId:actor.id,health:rounded(actor.health),amount:applied,from:source});
       if (actor.id===selfId) applySelf(actorState(actor),new T.Vector3(...source));
+      if (next.health<=0) {
+        const killer=attacker||null;
+        if (killer) { killer.stats.kills++; }
+        if (mode==='pvp'&&pvp&&killer) {
+          netEvent({kind:'playerKill',killerId:killer?.id||null,victimId:actor.id,part:attacker?.lastHitPart||'body',cause:'shot'});
+          pvp.onKill(killer,actor,attacker?.lastHitPart||'body');
+        }
+      }
+      return {applied,killed:next.health<=0};
     }
     // Every original AI read sees the same selected actor during this synchronous call.
     // The hash lock and try/finally prevent leaking this temporary context into the frame loop.
@@ -182,6 +192,20 @@
         if (distance!==null && distance<=nearest) { nearest=distance; selected=actor; }
       }
       return selected ? {actor:selected,distance:nearest} : null;
+    }
+    function hitPlayers(origin,dir,range,shooter) {
+      if (mode!=='pvp'||!pvp) return null;
+      const opts=pvp.options();let selected=null,nearest=range,part=null,point=null;
+      for (const actor of actors.values()) {
+        if (!window.LanFlowPvp.canHit(shooter,actor,opts)) continue;
+        const low=[actor.pos.x,actor.pos.y+.35,actor.pos.z], high=[actor.pos.x,actor.pos.y+(actor.crouching?1:1.5),actor.pos.z];
+        const distance=capsuleHit(values(origin),values(dir),low,high,.36,nearest);
+        if (distance!==null&&distance<=nearest) {
+          nearest=distance;selected=actor;point=values(origin.clone().addScaledVector(dir,distance));
+          part=window.LanFlowPvp.hitPart(point[1],actor.pos.y,actor.crouching);
+        }
+      }
+      return selected?{actor:selected,distance:nearest,part,point}:null;
     }
     function staticPrediction(origin,dir,range=300) {
       const hit=G.physics.raycast(origin,dir,range);
@@ -332,13 +356,16 @@
       if (message.type!=='shotIntent'||message.seq<=actor.ackShot) return;
       actor.ackShot=message.seq;
       const origin=new T.Vector3(...message.origin),dir=new T.Vector3(...message.dir).normalize();
-      const result={kind:'shotResult',playerId:actor.id,shotSeq:message.seq,accepted:false,hit:false,killed:false,enemyId:null,part:null,
+      const result={kind:'shotResult',playerId:actor.id,shotSeq:message.seq,accepted:false,hit:false,killed:false,enemyId:null,victimId:null,part:null,
         point:values(origin.clone().addScaledVector(dir,300)),normal:values(dir.clone().negate())};
       if (actor.proxy.alive&&!actor.reloadUntil&&actor.ammo>0&&origin.distanceTo(actor.eye)<3&&takeFireToken(actor,message.at)) {
         result.accepted=true;actor.ammo--;actor.stats.shots++;stats.acceptedShots++;
-        const wall=G.physics.raycast(origin,dir,300), hit=G.enemies.raycast(origin,dir,wall?wall.dist:300);
+        const wall=G.physics.raycast(origin,dir,300), limit=wall?wall.dist:300;
+        const enemyHit=G.enemies.raycast(origin,dir,limit), playerHit=hitPlayers(origin,dir,limit,actor);
+        const hit=enemyHit&&playerHit?(enemyHit.dist<=playerHit.distance?{kind:'enemy',...enemyHit}:{kind:'player',...playerHit}):
+          enemyHit?{kind:'enemy',...enemyHit}:playerHit?{kind:'player',...playerHit}:null;
         if (wall) {result.point=values(wall.point);result.normal=values(wall.normal);}
-        if (hit&&hit.enemy.alive) {
+        if (hit?.kind==='enemy'&&hit.enemy.alive) {
           const enemy=hit.enemy;actor.stats.hits++;result.hit=true;result.enemyId=`e${enemy.id}`;result.part=hit.part;
           result.point=values(hit.point);result.normal=values(hit.normal||dir.clone().negate());
           enemy.lanProvoker=actor.id;enemy.lanProvokeUntil=Date.now()+4000;
@@ -346,6 +373,13 @@
           try {result.killed=withActor(actor,()=>enemy.damage(26*(hit.part==='weak'?2.2:1),hit.point,dir,hit.part))===true;}
           finally {currentAttacker=previous;}
           if (result.killed) actor.stats.kills++;
+        } else if (hit?.kind==='player') {
+          const victim=hit.actor,part=hit.part;actor.stats.hits++;result.hit=true;result.victimId=victim.id;result.part=part;
+          result.point=hit.point;result.normal=values(dir.clone().negate());
+          actor.lastHitPart=part;
+          const outcome=damage(victim,window.LanFlowPvp.damageFor(part),origin,actor);
+          result.killed=!!outcome?.killed;
+          delete actor.lastHitPart;
         }
         saved.alert.call(G.enemies,origin,45);
       } else stats.rejectedShots++;
@@ -398,7 +432,8 @@
       }
       for(const id of [...puppets.keys()])if(!seen.has(id))removePuppet(id);
       for(const data of message.players)applySelf(data);
-      if(message.flow)coop.apply(message.flow);
+      if(message.flow?.kind==='coop')coop.apply(message.flow);
+      if(message.flow?.kind==='pvp')pvp.apply(message.flow);
       warn(`已同步 ${message.enemies.filter(e=>e.alive).length} 个敌人 · 生命 ${Math.ceil(player.health)}`);
     }
     function presentEvent(event) {
@@ -407,10 +442,13 @@
         if(event.hit) {
           G.fx.sparks(new T.Vector3(...event.point),new T.Vector3(...event.normal),event.killed?12:5);
           G.audio.play('impact_enemy',{pos:new T.Vector3(...event.point),gain:.75});
-          if(event.playerId===selfId)G.hud.hitmarker(event.killed?'kill':event.part==='weak'?'weak':'hit');
+          if(event.playerId===selfId)G.hud.hitmarker(event.killed?'kill':(event.part==='weak'||event.part==='head')?'weak':'hit');
         }
       } else if(event.kind==='enemyDeath') {
         if(event.enemyType==='hound')removePuppet(event.enemyId);
+      } else if(event.kind==='playerKill') {
+        if(event.victimId===selfId) { player.health=0;player.alive=false;player.enabled=false;G.input.setGameplay(false);G.input.exitLock(); }
+        if(event.killerId===selfId) G.hud.hitmarker('kill');
       } else if(event.kind==='hurt') {
         if(event.playerId===selfId&&!isHost()) {
           const old=latestWorld?.players.find(p=>p.playerId===selfId);
@@ -451,7 +489,7 @@
       }
       return {type:'world',roundId,seq:++worldSeq,enemies,players:[...actors.values()].map(actorState),
         bolts:projectiles.map(b=>({id:b.id,pos:values(b.pos).map(rounded),dir:values(b.dir).map(rounded)})),
-        ...(coop.active()?{flow:coop.snapshot()}:{})};
+        ...(coop.active()?{flow:coop.snapshot()}:pvp.active()?{flow:pvp.snapshot()}: {})};
     }
     function tick() {
       const now=performance.now(),elapsed=Math.min(.1,Math.max(0,(now-lastTick)/1000));lastTick=now;
@@ -460,7 +498,7 @@
       if(!isHost()||!running())return;
       localPose();accumulator+=elapsed;
       while(accumulator>=1/30) {
-        shared.tick();if(!coop.terminal())coop.tick(1/30);
+        shared.tick();if(!coop.terminal())coop.tick(1/30);if(!pvp.terminal())pvp.tick(1/30);
         accumulator-=1/30;
         if(!fighting())continue;
         saved.enemyUpdate.call(G.enemies,1/30);updateBolts(1/30);stats.simulations++;
@@ -494,13 +532,14 @@
     }
     const flowContext={G,actors,emit,resetSelf,send:message=>send({...message,roundId}),self:()=>selfId,isHost,
       states:()=>isHost()?[...actors.values()].map(actorState):latestWorld?.players||[],
-      aliveEnemies:()=>G.enemies.list.filter(e=>e.active&&e.alive),alert:(pos,radius)=>saved.alert.call(G.enemies,pos,radius)};
+      aliveEnemies:()=>G.enemies.list.filter(e=>e.active&&e.alive),alert:(pos,radius)=>saved.alert.call(G.enemies,pos,radius),onStatus:warn};
     shared=window.LanFlowShared.create(flowContext);
     coop=window.LanFlowCoop.create({...flowContext,shared});
+    pvp=window.LanFlowPvp.create({...flowContext,shared});
     const timer=setInterval(tick,1000/30);
     function render(now) {
       if(!attached)return;
-      coop.render(now);
+      coop.render(now);pvp.render(now);
       shared.render(coop.snapshot());
       const target=now-(offset||0)-100;
       for(const puppet of puppets.values()) {
@@ -534,7 +573,8 @@
         if (state==='ended') saved.clear.call(G.enemies);
       }
       finally {initializing=false;}
-      shared.initialize({...data,mode});coop.initialize({...data,mode});
+      shared.initialize({...data,mode});coop.initialize({...data,mode});pvp.initialize({...data,mode});
+      if(mode==='pvp'&&pvp.options().npcs==='off'){initializing=true;try{saved.clear.call(G.enemies);}finally{initializing=false;}}
       lockMenus(true);G.weapon.debug.noFire=true;
       if(!coop.active()){G.hud.setObjective('联机战斗：消灭港区机械守卫');G.hud.setMarkers([]);}
       warn(state==='ended'?'本轮已结束，仍可移动；房主按 F2 重开战斗':isHost()?'房主：等待地图校验':'等待房主同步敌人');
@@ -542,7 +582,7 @@
     function detach(resume=true) {
       if(!attached)return;
       attached=false;mapOk=false;clearPuppets();projectiles=[];actors.clear();pendingShots.clear();latestWorld=null;
-      shared.detach();coop.detach();
+      shared.detach();coop.detach();pvp.detach();
       for(const mesh of boltMeshes)mesh.visible=false;
       G.weapon.debug.noFire=false;lockMenus(false);saved.clear.call(G.enemies);
       if(resume)saved.gameStart.call(G.game,{skipIntro:true});
@@ -553,9 +593,9 @@
       status(data){hostId=data.hostId;state=data.status;if(state==='ended'){clearPuppets();projectiles=[];latestWorld=null;saved.clear.call(G.enemies);}if(data.reason)warn(data.reason);},
       snapshot(){return {attached,isHost:isHost(),state,roundId,sourceActive:G.enemies.list.filter(e=>e.active&&e.alive).length,puppetCount:puppets.size,
         enemies:(isHost()?G.enemies.list.filter(e=>e.active&&e.rig.group.visible).map(e=>({id:`e${e.id}`,kind:e.type,hp:e.hp,alive:e.alive,pos:values(e.pos),targetId:e.lanTarget||null})):latestWorld?.enemies.map(e=>({id:e.id,kind:e.kind,hp:e.hp,alive:e.alive,pos:e.pos,targetId:e.targetId}))||[]),
-        players:latestWorld?.players.map(p=>({...p,stats:{...p.stats}}))||[],flow:coop.snapshot(),spawn:shared.snapshot(),stats:{...stats},worldSeq:isHost()?worldSeq:lastWorldSeq,
+        players:latestWorld?.players.map(p=>({...p,stats:{...p.stats}}))||[],flow:coop.active()?coop.snapshot():pvp.snapshot(),spawn:shared.snapshot(),stats:{...stats},worldSeq:isHost()?worldSeq:lastWorldSeq,
         independentSkeletons:[...puppets.values()].every(p=>[...p.skeletons.values()].every(s=>s.bones.every(b=>p.bones.includes(b))))};},
-      destroy(){detach(false);shared.destroy();coop.destroy();clearInterval(timer);window.removeEventListener('click',preventReset,true);for(const remove of removers.reverse())remove();projectileRoot.removeFromParent();boltGeometry.dispose();boltMaterial.dispose();}
+      destroy(){detach(false);shared.destroy();coop.destroy();pvp.destroy();clearInterval(timer);window.removeEventListener('click',preventReset,true);for(const remove of removers.reverse())remove();projectileRoot.removeFromParent();boltGeometry.dispose();boltMaterial.dispose();}
     };
   }
   window.LanCombat=Object.freeze({create});

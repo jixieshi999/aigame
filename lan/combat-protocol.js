@@ -23,6 +23,19 @@ const unit=n=>Number.isFinite(n)&&n>=0&&n<=1;
 const timer=n=>Number.isFinite(n)&&n>=0&&n<=10000000;
 /** Coop state contains only bounded numerical state and known objective IDs. */
 function cleanFlow(f) {
+  if(f&&f.kind==='pvp') {
+    if(!['active','ended'].includes(f.phase)||!timer(f.time)||!timer(f.timeLimit)||f.time>f.timeLimit||!count(f.scoreLimit,200)||f.scoreLimit<5||
+      !Array.isArray(f.scores)||f.scores.length!==2||!f.scores.every(n=>count(n,10000000))||
+      !(f.winner===null||f.winner===-1||f.winner===0||f.winner===1)||
+      (f.phase==='active'&&f.winner!==null)||(f.phase==='ended'&&f.winner===null)||
+      !f.options||typeof f.options!=='object'||typeof f.options.friendlyFire!=='boolean'||!['off','both'].includes(f.options.npcs)||
+      !Number.isInteger(f.options.respawnSec)||f.options.respawnSec<1||f.options.respawnSec>60||
+      !Number.isInteger(f.options.timeLimitSec)||f.options.timeLimitSec<60||f.options.timeLimitSec>3600||
+      !Number.isInteger(f.options.scoreLimit)||f.options.scoreLimit<5||f.options.scoreLimit>200||typeof f.options.rebalance!=='boolean'||
+      !(f.result===null||f.result==='score'||f.result==='time'))return null;
+    return {kind:'pvp',phase:f.phase,time:f.time,timeLimit:f.timeLimit,scoreLimit:f.scoreLimit,scores:f.scores.slice(),winner:f.winner,
+      options:{friendlyFire:f.options.friendlyFire,npcs:f.options.npcs,scoreLimit:f.options.scoreLimit,timeLimitSec:f.options.timeLimitSec,respawnSec:f.options.respawnSec,rebalance:f.options.rebalance},result:f.result??null};
+  }
   if(!f||f.kind!=='coop'||!['active','extract','complete','failed'].includes(f.phase)||!timer(f.time)||
       !Array.isArray(f.relays)||f.relays.length<1||f.relays.length>16||!count(f.cut,16)||f.total!==f.relays.length||
       !count(f.wave,1000)||!timer(f.waveHot)||typeof f.allCut!=='boolean'||!count(f.pursuitLeft,1000))return null;
@@ -93,7 +106,10 @@ function cleanEvent(e, playerIds) {
   if(e.kind==='waveWarning'&&vec(e.centroid))return {kind:e.kind,centroid:copy(e.centroid)};
   if(e.kind==='radio'&&['intro','contact','cut1','cut2','all','low','done'].includes(e.key))return {kind:e.kind,key:e.key};
   if(e.kind==='phase'&&['active','extract','complete','failed'].includes(e.phase))return {kind:e.kind,phase:e.phase};
-  if(e.kind==='roundEnd'&&['complete','failed'].includes(e.result)&&(e.winnerTeam===undefined||e.winnerTeam===null))return {kind:e.kind,result:e.result,winnerTeam:null};
+  if(e.kind==='roundEnd'&&(['complete','failed'].includes(e.result)&&(e.winnerTeam===undefined||e.winnerTeam===null) || e.result==='pvp'&&[null,-1,0,1].includes(e.winnerTeam)))
+    return {kind:e.kind,result:e.result,winnerTeam:e.winnerTeam??null};
+  if(e.kind==='playerKill'&&((e.killerId===null)||playerIds.has(e.killerId))&&playerIds.has(e.victimId)&&['body','head'].includes(e.part)&&e.cause==='shot')
+    return {kind:e.kind,killerId:e.killerId,victimId:e.victimId,part:e.part,cause:e.cause};
   if (e.kind === 'hurt' && playerIds.has(e.playerId) && scalar(e.health) && e.health >= 0 && e.health <= 100 &&
       scalar(e.amount) && e.amount > 0 && e.amount <= 100 && vec(e.from)) {
     return { kind:e.kind, playerId:e.playerId, health:e.health, amount:e.amount, from:copy(e.from) };
@@ -109,9 +125,9 @@ function cleanEvent(e, playerIds) {
   }
   if (e.kind === 'shotResult' && playerIds.has(e.playerId) && count(e.shotSeq,Number.MAX_SAFE_INTEGER) &&
       typeof e.accepted === 'boolean' && typeof e.hit === 'boolean' && typeof e.killed === 'boolean' &&
-      (e.enemyId === null || id(e.enemyId)) && ['body','weak',null].includes(e.part) && vec(e.point) && vec(e.normal)) {
+      (e.enemyId === null || id(e.enemyId)) && (e.victimId === undefined || e.victimId === null || playerIds.has(e.victimId)) && ['body','head','weak',null].includes(e.part) && vec(e.point) && vec(e.normal)) {
     return { kind:e.kind, playerId:e.playerId, shotSeq:e.shotSeq, accepted:e.accepted, hit:e.hit, killed:e.killed,
-      enemyId:e.enemyId, part:e.part, point:copy(e.point), normal:copy(e.normal) };
+      enemyId:e.enemyId, victimId:e.victimId??null, part:e.part, point:copy(e.point), normal:copy(e.normal) };
   }
   return null;
 }

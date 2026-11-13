@@ -115,7 +115,7 @@
       if(!enabled)return;
       const now=Date.now(),others=[...actors.values()].filter(a=>a.id!==actor.id);
       const npcs=G.enemies.list.filter(e=>e.active&&e.alive);
-      let points=pools.coop;
+      let points=(actor.team!=null&&pools.teams?.[actor.team])||pools.coop;
       if(revive) {
         const near=nearbySpawns(others,walkable).filter(p=>others.every(a=>a.health<=0||distance(p,array(a.pos))>=RULES.overlap)&&npcs.every(e=>distance(p,array(e.pos))>=15&&!visible(p,array(e.pos))));
         if(near.length)points=near;
@@ -124,13 +124,13 @@
       used=used.filter(item=>now-item.at<10000);used.push({pos,at:now});
       actor.pos.fromArray(pos);actor.eye.copy(actor.pos).add(new T.Vector3(0,1.68,0));actor.vel.set(0,0,0);
       actor.health=100;actor.ammo=30;actor.reserve=150;actor.reloadUntil=0;actor.respawnAt=null;
-      actor.invulnUntil=now+RULES.invulnSec*1000;actor.lastDamage=now;actor.spawnSlot=pools.coop.findIndex(p=>distance(p,pos)<.1);
+      actor.invulnUntil=now+RULES.invulnSec*1000;actor.lastDamage=now;actor.spawnSlot=points.findIndex(p=>distance(p,pos)<.1);
       actor.needsSpawn=false;actor.ignorePoseUntil=now+500;actor.lastPose=now;actor.yaw=-Math.PI/2;
       if(revive)actor.respawns++;
       emit({kind:'respawn',playerId:actor.id,pos,yaw:actor.yaw,invulnSec:RULES.invulnSec});
     }
     return {
-      initialize(data){enabled=data.mode==='coop';options=data.options||{};used=[];local=null;life.hidden=result.hidden=true;resultKey='';respawnSeq=0;if(enabled&&!pools)pools=buildSpawnPools(walkable,visible);},
+      initialize(data){enabled=data.mode==='coop'||data.mode==='pvp';options={...(data.options||{}),respawnSec:data.options?.respawnSec??(data.mode==='pvp'?5:10)};used=[];local=null;life.hidden=result.hidden=true;resultKey='';respawnSeq=0;if(enabled&&!pools)pools=buildSpawnPools(walkable,visible);},
       place,
       tick(){if(enabled)for(const actor of actors.values())if(actor.needsSpawn)place(actor);},
       applyPlayer(data){if(enabled&&data.playerId===ctx.self())local={...data};},

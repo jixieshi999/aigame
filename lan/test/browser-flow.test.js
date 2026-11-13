@@ -33,7 +33,7 @@ async function main(){
     for(const p of pages)await p.evaluate(()=>{window.__oldLanEntities=__G.scene.children.filter(o=>o.userData.lanEnemy);});
     await send(a,{type:'roundReset',options:{respawnSec:1}});
     for(const p of pages)await p.waitForFunction(old=>__LAN.snapshot().roundId!==old&&__LAN.snapshot().combat.state==='active',old,{timeout:30000});
-    const counts=require('../flow-coop').scaled({gull:2,hound:1},pages.length),expected=counts.gull+counts.hound;
+    const coopRules=require('../flow-coop').RULES,counts=require('../flow-coop').scaled(coopRules.patrol,pages.length),expected=counts.gull+counts.hound;
     for(const p of pages){
       await p.waitForFunction(expected=>__LAN.snapshot().combat.enemies.filter(e=>e.alive).length===expected,expected);
       assert.ok(await p.evaluate(()=>__oldLanEntities.every(o=>!o.parent&&!__G.scene.children.includes(o))),'重开必须移除旧轮的全部显示实体');

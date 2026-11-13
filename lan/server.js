@@ -92,7 +92,7 @@ function createLanServer(options = {}) {
     }
     if (route !== '/' && route !== '/net.js') { res.writeHead(404, headers); res.end('Not found'); return; }
     let content;
-    try { content = route === '/' ? injected : ['combat.js','flow-shared.js','flow-coop.js','net.js'].map(file=>fs.readFileSync(path.join(__dirname,file),'utf8')).join('\n;\n'); }
+    try { content = route === '/' ? injected : ['flow-shared.js','flow-coop.js','flow-pvp.js','combat.js','warehouse-map.js','net.js'].map(file=>fs.readFileSync(path.join(__dirname,file),'utf8')).join('\n;\n'); }
     catch (error) { console.error(`读取联机脚本失败：${error.message}`); res.writeHead(500, headers); res.end('Script unavailable'); return; }
     res.writeHead(200, { ...headers, 'Content-Type': route === '/' ? 'text/html; charset=utf-8' : 'text/javascript; charset=utf-8' });
     res.end(req.method === 'HEAD' ? undefined : content);

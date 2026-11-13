@@ -116,6 +116,10 @@
     #lan-panel button:disabled{opacity:.5;cursor:wait}#lan-panel ul{padding-left:20px}#lan-panel a{color:#8ed6ff;word-break:break-all}
     #lan-panel .lan-note{font-size:12px;color:#adbfce}#lan-status{position:fixed;top:8px;left:50%;transform:translateX(-50%);max-width:72vw;z-index:2147483001;background:#081523d9;border-radius:5px;padding:4px 12px;pointer-events:none}
     #lan-status[data-warning="true"]{background:#672c19ed;color:#fff3cc}#lan-toggle{position:fixed;top:8px;right:16px;z-index:2147483000}
+    #lan-rotate{display:none;position:fixed;inset:0;z-index:2147482999;align-items:center;justify-content:center;background:#06111cf2;color:#edf5ff;text-align:center;padding:28px;font:600 18px/1.6 "Microsoft YaHei",sans-serif}
+    #lan-touch-interact{display:none;position:fixed;right:24px;bottom:128px;z-index:2147482998;padding:13px 17px;border:2px solid #8ed6ff;border-radius:50%;background:#102d44e8;color:#fff;font:600 15px/1 "Microsoft YaHei",sans-serif;touch-action:none;user-select:none}
+    @media (max-width:700px) and (orientation:portrait){#lan-rotate{display:flex}}
+    @media (pointer:coarse){#lan-touch-interact{display:block}}
   `;
   const panel = element('section', undefined, document.body); panel.id = 'lan-panel'; panel.setAttribute('aria-label', '局域网联机大厅');
   element('h2', '几猫 · 局域网联机', panel);
@@ -127,7 +131,7 @@
   const nameInput = field('昵称', 'lan-name', query.get('lanName') || `玩家${Date.now() % 10000}`, 20);
   const roomInput = field('房间号（字母、数字、下划线或短横线）', 'lan-room', query.get('lanRoom') || 'CAT', 32);
   const modeLabel = element('label', '房间模式', panel), modeInput = element('select', undefined, modeLabel); modeInput.id = 'lan-mode';
-  for (const [value, text] of [['coop', '合作（同阵营）'], ['pvp', '双阵营（仅显示）']]) {
+  for (const [value, text] of [['coop', '合作（同阵营）'], ['pvp', '双队对抗（可互相射击）']]) {
     const option = element('option', text, modeInput); option.value = value;
   }
   modeInput.value = query.get('lanMode') === 'pvp' ? 'pvp' : 'coop';
@@ -140,9 +144,23 @@
   const correction = element('p', undefined, panel); correction.hidden = true;
   const list = element('ul', undefined, panel); list.id = 'lan-players';
   element('p', 'F2 打开/收起大厅。锁鼠时 F2 先释放鼠标。关闭大厅后点击原游戏继续。', panel, 'lan-note');
-  element('p', '按住 E 切断中继；倒下10秒后点击或按 Enter 复活。三处全断后全体存活队员撤离；暂停时世界继续。双阵营暂仅分队显示。', panel, 'lan-note');
+  element('p', '按住 E 或触屏交互键切断中继；倒下10秒后点击或按 Enter 复活。三处全断后全体存活队员撤离；暂停时世界继续。双队对抗按房主权威判定玩家命中。', panel, 'lan-note');
   const toggle = element('button', '联机大厅 F2', document.body); toggle.id = 'lan-toggle';
   const badge = element('div', '联机：等待游戏就绪', document.body); badge.id = 'lan-status';
+  const rotateNotice = element('div', '请将手机横向握持以获得完整视野；若浏览器未自动旋转，请打开系统自动旋转。', document.body); rotateNotice.id='lan-rotate';
+  const touchInteract = element('button', '交互', document.body); touchInteract.id='lan-touch-interact'; touchInteract.setAttribute('aria-label','按住交互');
+  let touchInteractHeld=false;
+  function setTouchInteract(held,event){touchInteractHeld=held;window.__lanInteractHeld=held;if(event){event.preventDefault();event.stopPropagation();}}
+  for(const type of ['pointerdown','touchstart'])touchInteract.addEventListener(type,e=>{if(type==='pointerdown'&&e.pointerId!=null)touchInteract.setPointerCapture?.(e.pointerId);setTouchInteract(true,e)},{passive:false});
+  for(const type of ['pointerup','pointercancel','pointerleave','touchend','touchcancel'])touchInteract.addEventListener(type,e=>setTouchInteract(false,e),{passive:false});
+  window.__lanInteractHeld=false;
+  function tryLandscape(){
+    if(!('ontouchstart' in window)&&!navigator.maxTouchPoints)return;
+    try{document.documentElement.requestFullscreen?.().then(()=>{if(screen.orientation?.lock){const pending=screen.orientation.lock('landscape');pending?.catch?.(()=>{});}}).catch(()=>{});}catch{}
+    try{if(screen.orientation?.lock){const pending=screen.orientation.lock('landscape');pending?.catch?.(()=>{});}}catch{}
+  }
+  window.addEventListener('orientationchange',()=>{rotateNotice.hidden=innerWidth>=innerHeight;});
+  window.addEventListener('pointerdown',tryLandscape,{once:true,passive:true});
   function status(text) { statusText.textContent = text; updateBadge(); }
   function updateBadge() {
     badge.textContent = mapWarning || (battleEnded ? '本轮已结束 · 房主按 F2 重开战斗' : `${statusText.textContent} · ${mapState}`);
@@ -268,6 +286,7 @@
     socket.send(JSON.stringify({ ...data, v: VERSION })); return true;
   }
   function resetConnection() {
+    touchInteractHeld=false;window.__lanInteractHeld=false;touchInteract.hidden=true;
     if (combat) combat.detach(!closingPage);
     clearRemote(); members = []; selfId = null; roundId = null; hostId = null; clockOffset = null; battleEnded = false;
     list.replaceChildren(); connectButton.disabled = !ready || fatal; leaveButton.disabled = true; resetButton.disabled = true;
@@ -282,12 +301,14 @@
     const url = new URL(location.href); url.searchParams.set('seed', message.seed); url.searchParams.set('eseed', message.eseed);
     url.searchParams.set('lanRoom', message.room); url.searchParams.set('lanName', nameInput.value);
     url.searchParams.set('lanMode', message.mode); url.searchParams.set('lanAuto', '1');
+    if(query.get('lanMap')==='warehouse')url.searchParams.set('lanMap','warehouse');
     correction.replaceChildren(); correction.hidden = false;
     element('span', '房主地图链接：', correction);
     const link = element('a', url.href, correction); link.href = url.href; link.id = 'lan-correct-url';
   }
   function connect() {
     if (!ready || fatal) return;
+    tryLandscape();
     if (!/^[a-zA-Z0-9_-]{1,32}$/.test(roomInput.value.trim())) { status('房间号格式无效'); return; }
     disconnect(); correction.hidden = true; mapWarning = ''; mapState = '正在核对地图';
     const current = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/`); socket = current;
@@ -378,6 +399,7 @@
   }
   function start() {
     G = window.__G;
+    if(query.get('lanMap')==='warehouse') window.LanWarehouse?.install(G);
     combat = window.LanCombat.create({G,send,onStatus:text=>{combatText.textContent=text;}});
     map = summarizeMap(G.physics);
     seed = effectiveSeed(G.params.seed, 4207); eseed = effectiveSeed(G.params.eseed, 9001);

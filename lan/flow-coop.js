@@ -37,7 +37,7 @@
     all:'三处中继全部断开！撤离艇在码头南端的舷梯旁，快撤！',
     low:'伤势严重！找掩体躲避，稍作恢复。',done:'几猫队员已登船，港区封锁解除。干得漂亮！'
   });
-  const RULES=Object.freeze({patrol:{gull:2,hound:1},waves:[{gull:3,hound:1},{gull:3,hound:2},{gull:4,hound:3}],stagger:.85,
+  const RULES=Object.freeze({patrol:{gull:3,hound:2},waves:[{gull:4,hound:2},{gull:4,hound:3},{gull:5,hound:4}],stagger:.85,
     firstSpawn:1.6,spawnFar:18,pursuitEvery:7,pursuitMinAlive:4,pursuitExtra:5});
   const multiplier=n=>Math.min(3,1+.5*(Math.max(1,n)-1));
   const maxAlive=n=>Math.min(18,9+2*(Math.max(1,n)-1));
@@ -181,7 +181,9 @@
         const actor={health:G.player.alive?G.player.health:0,pos:G.player.pos,yaw:G.player.yaw};
         const choices=G.game.state==='playing'?state.relays.filter(r=>validInteraction(actor,G.level.objectives.find(o=>o.id===r.id),r)):[];
         choices.sort((a,b)=>G.level.objectives.find(o=>o.id===a.id).pos.distanceToSquared(G.player.pos)-G.level.objectives.find(o=>o.id===b.id).pos.distanceToSquared(G.player.pos));
-        const relay=choices[0],next=relay&&G.input.down('interact')?relay.id:null;
+        const relay=choices[0],touchButton=document.getElementById('lan-touch-interact');
+        if(touchButton)touchButton.hidden=!relay||state.phase!=='active';
+        const next=relay&&(G.input.down('interact')||window.__lanInteractHeld)?relay.id:null;
         if(holding&&holding!==next)ctx.send({type:'interact',seq:++seq,objectiveId:holding,active:false});
         if(next&&(next!==holding||now-lastHeartbeat>=200)){ctx.send({type:'interact',seq:++seq,objectiveId:next,active:true});lastHeartbeat=now;}
         holding=next;
